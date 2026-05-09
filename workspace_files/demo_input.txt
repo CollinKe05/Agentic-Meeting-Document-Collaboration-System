@@ -1,0 +1,1 @@
+这是一个本地离线示例文件，用于验证 SAFE_READ_TEXT_FILE 工具。
