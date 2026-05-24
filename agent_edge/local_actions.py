@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .mineru_tool import parse_document_with_mineru
 from .paths import (
     SKILLS_DIR,
     WORKSPACE_DIR,
@@ -17,11 +18,6 @@ def json_observation(payload: dict[str, Any]) -> str:
 
 
 def execute_local_action(action: str, action_input: str) -> str:
-    """纯 Python 本地工具拦截器。
-
-    不使用 LangChain @tool 装饰器，不注册任何云端工具。
-    LLM 只能提出 READ_SKILL 或 USE_TOOL；真正的文件 I/O 在这里受控执行。
-    """
     normalized_action = action.strip().upper()
 
     try:
@@ -39,19 +35,17 @@ def execute_local_action(action: str, action_input: str) -> str:
             if not isinstance(args, dict):
                 return json_observation({"ok": False, "error": "args 必须是 JSON object"})
 
-            return _execute_dummy_tool(tool_name, args)
+            return _execute_local_tool(tool_name, args)
 
         return json_observation({"ok": False, "error": f"未知 Action：{action}"})
 
     except json.JSONDecodeError as exc:
         return json_observation({"ok": False, "error": f"JSON 解析失败：{exc}"})
     except Exception as exc:
-        return json_observation(
-            {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
-        )
+        return json_observation({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
 
 
-def _execute_dummy_tool(tool_name: str, args: dict[str, Any]) -> str:
+def _execute_local_tool(tool_name: str, args: dict[str, Any]) -> str:
     if tool_name == "LOCAL_ECHO":
         return json_observation({"ok": True, "echo": str(args.get("text", ""))})
 
@@ -81,5 +75,8 @@ def _execute_dummy_tool(tool_name: str, args: dict[str, Any]) -> str:
         file_path = safe_child_path(WORKSPACE_DIR, rel_path)
         write_limited_text(file_path, text, overwrite=overwrite)
         return json_observation({"ok": True, "path": rel_path, "bytes": len(text.encode("utf-8"))})
+
+    if tool_name in {"PARSE_DOCUMENT_WITH_MINERU", "MINERU_PARSE_DOCUMENT"}:
+        return json_observation(parse_document_with_mineru(args))
 
     return json_observation({"ok": False, "error": f"未知本地工具：{tool_name}"})

@@ -11,3 +11,7 @@ logs/
 *.egg-info/
 dist/
 build/
+.runtime/
+mineru/
+
+*.gguf

@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>边缘端 Agent 控制台</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --surface: #ffffff;
+      --line: #d9dee7;
+      --text: #172033;
+      --muted: #647084;
+      --accent: #2f6f63;
+      --accent-strong: #22574d;
+      --warm: #b85f3d;
+      --soft: #eef4f2;
+      --danger: #a33c3c;
+      font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background: var(--bg);
+    }
+    .shell {
+      display: grid;
+      grid-template-columns: minmax(230px, 280px) minmax(420px, 1fr) minmax(220px, 280px);
+      gap: 14px;
+      height: 100vh;
+      padding: 14px;
+    }
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      min-width: 0;
+    }
+    .left {
+      display: grid;
+      grid-template-rows: minmax(300px, 1fr) minmax(180px, 32vh);
+      gap: 14px;
+      min-height: 0;
+    }
+    .skill-panel, .task-panel, .feature-panel {
+      padding: 12px;
+      overflow: hidden;
+    }
+    .panel-title {
+      margin: 0 0 10px;
+      font-size: 15px;
+      font-weight: 700;
+    }
+    .skill-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    input, select, textarea, button {
+      font: inherit;
+    }
+    input, select, textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--text);
+      background: #fff;
+    }
+    select, input {
+      height: 36px;
+      padding: 0 10px;
+    }
+    textarea {
+      resize: none;
+      padding: 10px;
+      line-height: 1.5;
+    }
+    .skill-editor {
+      height: calc(100% - 92px);
+      min-height: 180px;
+    }
+    button {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fff;
+      color: var(--text);
+      padding: 8px 11px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    button:hover { border-color: var(--accent); color: var(--accent-strong); }
+    .primary {
+      border-color: var(--accent);
+      background: var(--accent);
+      color: #fff;
+    }
+    .primary:hover { background: var(--accent-strong); color: #fff; }
+    .main {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 0;
+      padding: 14px;
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 12px;
+    }
+    .title {
+      margin: 0;
+      font-size: 18px;
+    }
+    .sub {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 3px;
+    }
+    .backend {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    .backend select { width: 135px; }
+    .chat {
+      overflow: auto;
+      padding: 14px 2px;
+    }
+    .message {
+      max-width: 840px;
+      margin: 0 auto 10px;
+      padding: 11px 13px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      white-space: pre-wrap;
+      line-height: 1.55;
+    }
+    .message.user {
+      border-color: #c8d8d4;
+      background: var(--soft);
+    }
+    .message.agent {
+      border-left: 4px solid var(--accent);
+    }
+    .message.error {
+      border-left: 4px solid var(--danger);
+    }
+    .dropzone {
+      max-width: 840px;
+      margin: 0 auto 10px;
+      border: 1px dashed #a7b2c2;
+      border-radius: 8px;
+      padding: 14px;
+      text-align: center;
+      color: var(--muted);
+      background: #fbfcfd;
+    }
+    .dropzone.drag {
+      border-color: var(--accent);
+      background: var(--soft);
+      color: var(--accent-strong);
+    }
+    .composer {
+      max-width: 840px;
+      width: 100%;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: end;
+    }
+    .composer textarea {
+      min-height: 76px;
+      max-height: 180px;
+    }
+    .status {
+      max-width: 840px;
+      margin: 0 auto 8px;
+      color: var(--muted);
+      font-size: 13px;
+      min-height: 18px;
+    }
+    .trace {
+      max-width: 840px;
+      margin: 0 auto 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      max-height: 210px;
+      overflow: auto;
+      display: none;
+    }
+    .trace-item {
+      padding: 9px 11px;
+      border-bottom: 1px solid var(--line);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+    .trace-item:last-child { border-bottom: 0; }
+    .trace-label {
+      color: var(--accent-strong);
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+    .feature-list {
+      display: grid;
+      gap: 8px;
+    }
+    .feature-button {
+      text-align: left;
+      padding: 10px;
+      background: #fff;
+    }
+    .feature-button strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+    .feature-button span {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.35;
+      display: block;
+      white-space: normal;
+    }
+    .task-list {
+      height: calc(100% - 26px);
+      overflow: auto;
+      display: grid;
+      gap: 8px;
+      align-content: start;
+    }
+    .task {
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px;
+      background: #fff;
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .task .state {
+      color: var(--warm);
+      font-weight: 700;
+    }
+    .hidden { display: none; }
+    @media (max-width: 980px) {
+      .shell {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+      .left {
+        grid-template-rows: 260px 180px;
+      }
+      .main {
+        min-height: 70vh;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="left">
+      <section class="panel skill-panel">
+        <h2 class="panel-title">自建 skill.md</h2>
+        <div class="skill-row">
+          <select id="skillSelect"></select>
+          <button id="loadSkill">读取</button>
+        </div>
+        <div class="skill-row">
+          <input id="skillName" placeholder="例如：my_skill.md">
+          <button id="saveSkill" class="primary">保存</button>
+        </div>
+        <textarea id="skillEditor" class="skill-editor" placeholder="在这里编写或修改本地 skill.md。"></textarea>
+      </section>
+      <section class="panel task-panel">
+        <h2 class="panel-title">处理结果记录 / 任务记录</h2>
+        <div id="taskList" class="task-list"></div>
+      </section>
+    </aside>
+
+    <main class="panel main">
+      <header class="topbar">
+        <div>
+          <h1 class="title">边缘端 Agent 控制台</h1>
+          <div class="sub">本地 LangGraph + llama.cpp + MinerU 严格串行调度</div>
+        </div>
+        <label class="backend">模型后端
+          <select id="backend">
+            <option value="llama_cpp">llama.cpp</option>
+          </select>
+        </label>
+      </header>
+      <section id="chat" class="chat"></section>
+      <section>
+        <div id="dropzone" class="dropzone">拖拽文件到这里，或点击上传文件</div>
+        <input id="fileInput" class="hidden" type="file">
+        <div id="trace" class="trace"></div>
+        <div id="status" class="status"></div>
+        <div class="composer">
+          <textarea id="prompt" placeholder="输入任务，例如：请读取 uploads/demo.txt 并总结内容。"></textarea>
+          <button id="send" class="primary">发送</button>
+        </div>
+      </section>
+    </main>
+
+    <aside class="panel feature-panel">
+      <h2 class="panel-title">可用功能</h2>
+      <div id="features" class="feature-list"></div>
+    </aside>
+  </div>
+
+  <script>
+    const chat = document.querySelector('#chat');
+    const promptBox = document.querySelector('#prompt');
+    const sendButton = document.querySelector('#send');
+    const statusBox = document.querySelector('#status');
+    const traceBox = document.querySelector('#trace');
+    const fileInput = document.querySelector('#fileInput');
+    const dropzone = document.querySelector('#dropzone');
+    const backendSelect = document.querySelector('#backend');
+    const featuresBox = document.querySelector('#features');
+    const taskList = document.querySelector('#taskList');
+    const skillSelect = document.querySelector('#skillSelect');
+    const skillName = document.querySelector('#skillName');
+    const skillEditor = document.querySelector('#skillEditor');
+    let pendingFeature = null;
+
+    function addMessage(kind, text) {
+      const node = document.createElement('div');
+      node.className = `message ${kind}`;
+      node.textContent = text;
+      chat.appendChild(node);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    function setStatus(text) {
+      statusBox.textContent = text || '';
+    }
+
+    async function postJson(url, data) {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data)
+      });
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || `请求失败：${response.status}`);
+      }
+      return payload;
+    }
+
+    async function sendPrompt(text) {
+      const prompt = (text || promptBox.value).trim();
+      if (!prompt) return;
+      addMessage('user', prompt);
+      promptBox.value = '';
+      traceBox.style.display = 'none';
+      traceBox.innerHTML = '';
+      sendButton.disabled = true;
+      setStatus('Agent 正在运行：规划、调用模型、执行工具。');
+      try {
+        const payload = await postJson('/api/chat', {prompt, backend: backendSelect.value});
+        addMessage('agent', payload.response || '任务完成。');
+        renderTrace(payload.steps || []);
+        await loadTasks();
+        setStatus(`任务完成：${payload.task_id}`);
+      } catch (error) {
+        addMessage('error', `任务失败：${error.message}`);
+        setStatus('任务失败，请查看错误信息。');
+      } finally {
+        sendButton.disabled = false;
+      }
+    }
+
+    function renderTrace(steps) {
+      if (!steps.length) return;
+      traceBox.style.display = 'block';
+      traceBox.innerHTML = steps.map(step => `
+        <div class="trace-item">
+          <div class="trace-label">步骤 ${step.index}：${escapeHtml(step.action)}</div>
+          <div>输入：${escapeHtml(step.input || '无')}</div>
+          <div>观察：${escapeHtml(step.observation || '无')}</div>
+        </div>
+      `).join('');
+    }
+
+    async function uploadFile(file) {
+      const form = new FormData();
+      form.append('file', file);
+      setStatus(`正在上传：${file.name}`);
+      const response = await fetch('/api/upload', {method: 'POST', body: form});
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) {
+        throw new Error(payload.error || '上传失败');
+      }
+      const uploaded = payload.files[0];
+      setStatus(`已上传：${uploaded.path}`);
+      return uploaded;
+    }
+
+    async function handleFiles(files) {
+      if (!files || !files.length) return;
+      try {
+        const uploaded = await uploadFile(files[0]);
+        addMessage('agent', `文件已上传：${uploaded.path}`);
+        if (pendingFeature) {
+          const feature = pendingFeature;
+          pendingFeature = null;
+          const text = feature.prompt.replaceAll('{path}', uploaded.path);
+          promptBox.value = text;
+          await sendPrompt(text);
+        } else {
+          promptBox.value = `请读取文件 ${uploaded.path}，总结它的内容。`;
+        }
+      } catch (error) {
+        addMessage('error', `上传失败：${error.message}`);
+      }
+    }
+
+    async function loadFeatures() {
+      const response = await fetch('/api/features');
+      const payload = await response.json();
+      featuresBox.innerHTML = '';
+      for (const feature of payload.features || []) {
+        const button = document.createElement('button');
+        button.className = 'feature-button';
+        button.innerHTML = `<strong>${escapeHtml(feature.title)}</strong><span>${escapeHtml(feature.description)}</span>`;
+        button.addEventListener('click', () => {
+          if (feature.needsFile) {
+            pendingFeature = feature;
+            fileInput.click();
+          } else {
+            promptBox.value = feature.prompt;
+            sendPrompt(feature.prompt);
+          }
+        });
+        featuresBox.appendChild(button);
+      }
+    }
+
+    async function loadTasks() {
+      const response = await fetch('/api/tasks');
+      const payload = await response.json();
+      taskList.innerHTML = '';
+      for (const task of payload.tasks || []) {
+        const node = document.createElement('div');
+        node.className = 'task';
+        node.innerHTML = `
+          <div><span class="state">${escapeHtml(task.status || '')}</span> ${escapeHtml(task.time || '')}</div>
+          <div>${escapeHtml(task.prompt || '')}</div>
+        `;
+        taskList.appendChild(node);
+      }
+    }
+
+    async function loadSkillList() {
+      const response = await fetch('/api/skills');
+      const payload = await response.json();
+      skillSelect.innerHTML = '';
+      for (const name of payload.skills || []) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        skillSelect.appendChild(option);
+      }
+      if (skillSelect.value) await loadSkill(skillSelect.value);
+    }
+
+    async function loadSkill(name) {
+      const response = await fetch(`/api/skills?name=${encodeURIComponent(name)}`);
+      const payload = await response.json();
+      if (!payload.ok) throw new Error(payload.error || '读取技能失败');
+      skillName.value = payload.name;
+      skillEditor.value = payload.content || '';
+    }
+
+    async function saveSkill() {
+      try {
+        const payload = await postJson('/api/skills', {
+          name: skillName.value,
+          content: skillEditor.value
+        });
+        setStatus(`技能已保存：${payload.name}`);
+        await loadSkillList();
+      } catch (error) {
+        setStatus(`保存失败：${error.message}`);
+      }
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    sendButton.addEventListener('click', () => sendPrompt());
+    promptBox.addEventListener('keydown', event => {
+      if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) sendPrompt();
+    });
+    fileInput.addEventListener('change', event => handleFiles(event.target.files));
+    dropzone.addEventListener('click', () => { pendingFeature = null; fileInput.click(); });
+    dropzone.addEventListener('dragover', event => {
+      event.preventDefault();
+      dropzone.classList.add('drag');
+    });
+    dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+    dropzone.addEventListener('drop', event => {
+      event.preventDefault();
+      dropzone.classList.remove('drag');
+      pendingFeature = null;
+      handleFiles(event.dataTransfer.files);
+    });
+    document.querySelector('#loadSkill').addEventListener('click', () => loadSkill(skillSelect.value));
+    document.querySelector('#saveSkill').addEventListener('click', saveSkill);
+
+    addMessage('agent', '控制台已就绪。可以直接聊天、上传文件，或点击右侧可用功能快速开始。');
+    loadFeatures();
+    loadTasks();
+    loadSkillList();
+  </script>
+</body>
+</html>

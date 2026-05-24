@@ -1,1 +1,1 @@
-这是一个本地离线示例文件，用于验证 SAFE_READ_TEXT_FILE 工具。
+这是一个可以在 Windows、WSL 或 Ubuntu 中读取的离线演示文件。

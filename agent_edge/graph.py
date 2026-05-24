@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import copy
 import json
+import re
 import warnings
+from pathlib import Path
 from typing import Any, Dict, Literal
 
 from langchain_core._api.deprecation import (
@@ -24,10 +26,74 @@ from .state import AgentState
 
 ROUTE_PREFIX = "__route__:"
 MAX_ATTEMPTS_PER_STEP = 3
+TEXT_FILE_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".markdown",
+    ".py",
+    ".js",
+    ".ts",
+    ".json",
+    ".csv",
+    ".toml",
+    ".yaml",
+    ".yml",
+    ".html",
+    ".css",
+    ".sh",
+    ".ps1",
+    ".cmd",
+    ".bat",
+    ".xml",
+    ".ini",
+    ".cfg",
+    ".log",
+}
+MINERU_FILE_EXTENSIONS = {
+    ".pdf",
+    ".doc",
+    ".docx",
+    ".ppt",
+    ".pptx",
+    ".xls",
+    ".xlsx",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".webp",
+    ".bmp",
+    ".tif",
+    ".tiff",
+}
+TOOL_INTENT_KEYWORDS = {
+    "文件",
+    "读取",
+    "读一下",
+    "打开",
+    "上传",
+    "解析",
+    "mineru",
+    "pdf",
+    "docx",
+    "pptx",
+    "xlsx",
+    "图片",
+    "ocr",
+    "技能",
+    "skill",
+    "工具",
+    "tool",
+    "统计",
+    "写入",
+    "保存",
+    "workspace",
+    "uploads",
+    "content_list",
+}
 
 
 def planner_node(state: AgentState) -> Dict[str, Any]:
-    """Planner Node：读取本地技能索引，并让本地模型输出 JSON plan。"""
+    """规划节点：读取本地技能索引，让本地模型输出 JSON 计划。"""
     ensure_demo_assets()
     skills_index = execute_local_action("READ_SKILL", "skills_index.md")
 
@@ -35,7 +101,7 @@ def planner_node(state: AgentState) -> Dict[str, Any]:
 [PLANNER]
 你是一个完全离线运行的边缘设备 AI Agent Planner。
 你必须基于用户输入和本地技能索引，生成严格 JSON list。
-不要输出 Markdown，不要解释，不要使用云工具。
+不要输出 Markdown，不要解释，不要调用云端工具。
 
 <user_input>
 {state["user_input"]}
@@ -61,9 +127,10 @@ def planner_node(state: AgentState) -> Dict[str, Any]:
 
 规划要求：
 - 使用 Plan-and-Solve 拆解任务。
-- 内部可以采用 Graph of Thoughts 比较路径，但最终只输出一个线性 JSON list。
-- 至少包含一个 READ_SKILL 学习步骤和一个 USE_TOOL 执行步骤。
-- 如用户没有指定文件，默认读取 demo_input.txt。
+- 内部可以比较多条路径，但最终只能输出一个线性 JSON list。
+- 至少包含一个 learn_skill 步骤和一个 use_tool 步骤。
+- 如果用户没有指定文件，默认读取 demo_input.txt。
+- 如果用户要求解析 PDF、图片、DOCX、PPTX 或 XLSX，优先学习 local_tool_skill.md，并调用 PARSE_DOCUMENT_WITH_MINERU。
 """
 
     raw = llm_call(prompt)
@@ -72,7 +139,7 @@ def planner_node(state: AgentState) -> Dict[str, Any]:
         note = f"Planner 已通过本地模型生成 {len(plan)} 个步骤。"
     except Exception as exc:
         plan = fallback_plan(state["user_input"])
-        note = f"Planner 输出解析失败，已使用本地 deterministic fallback plan：{type(exc).__name__}: {exc}"
+        note = f"Planner 输出解析失败，已使用本地 fallback plan：{type(exc).__name__}: {exc}"
 
     normalized = _normalize_plan(plan, state["user_input"])
 
@@ -84,7 +151,7 @@ def planner_node(state: AgentState) -> Dict[str, Any]:
 
 
 def executor_node(state: AgentState) -> Dict[str, Any]:
-    """Executor Node：ReAct + Reflexion 执行队首任务。"""
+    """执行节点：按 ReAct 风格执行队首任务，并把 Observation 写回状态。"""
     plan = copy.deepcopy(state.get("plan", []))
     past_steps = list(state.get("past_steps", []))
 
@@ -106,7 +173,7 @@ def executor_node(state: AgentState) -> Dict[str, Any]:
         current_task["result"] = "超过最大尝试次数，已跳过。"
         past_steps.append((("FINISH", f"step={current_task.get('id')}"), current_task["result"]))
         route = "next_task" if plan else "end"
-        response = _build_summary(past_steps) if route == "end" else current_task["result"]
+        response = _build_summary(past_steps, state["user_input"]) if route == "end" else current_task["result"]
         return {"plan": plan, "past_steps": past_steps, "current_response": f"{ROUTE_PREFIX}{route}\n{response}"}
 
     prompt = _build_executor_prompt(current_task, past_steps[-8:])
@@ -128,7 +195,11 @@ def executor_node(state: AgentState) -> Dict[str, Any]:
         past_steps.append((("FINISH", f"step={current_task.get('id')}"), action_input))
 
         route = "next_task" if plan else "end"
-        response = _build_summary(past_steps) if route == "end" else f"步骤 {current_task.get('id')} 完成：{action_input}"
+        response = (
+            _build_summary(past_steps, state["user_input"])
+            if route == "end"
+            else f"步骤 {current_task.get('id')} 完成：{action_input}"
+        )
         return {
             "plan": plan,
             "past_steps": past_steps,
@@ -173,6 +244,14 @@ def build_agent_graph():
 
 
 def run_agent(user_input: str) -> AgentState:
+    if _should_direct_chat(user_input):
+        return {
+            "user_input": user_input,
+            "plan": [],
+            "past_steps": [],
+            "current_response": llm_call(_build_direct_chat_prompt(user_input)),
+        }
+
     app = build_agent_graph()
     initial_state: AgentState = {
         "user_input": user_input,
@@ -187,11 +266,36 @@ def user_visible_response(state: AgentState) -> str:
     return strip_route_marker(state.get("current_response", ""), ROUTE_PREFIX)
 
 
+def _should_direct_chat(user_input: str) -> bool:
+    text = user_input.strip()
+    if not text:
+        return False
+
+    lowered = text.lower()
+    if "<attachments>" in lowered:
+        return False
+    if _extract_workspace_file_path({}, text):
+        return False
+    return not any(keyword in lowered for keyword in TOOL_INTENT_KEYWORDS)
+
+
+def _build_direct_chat_prompt(user_input: str) -> str:
+    return f"""
+你是一个运行在本地离线环境中的边缘端 Agent。
+当前用户请求不需要读取文件、调用工具或解析文档。
+请直接用中文自然回复用户，保持简洁、友好、可执行。
+不要编造已经读取文件、已经调用工具、已经完成解析这类事实。
+
+用户输入：
+{user_input}
+""".strip()
+
+
 def _build_executor_prompt(current_task: dict[str, Any], recent_history: list[tuple]) -> str:
     return f"""
 [EXECUTOR]
 你是一个完全离线运行的边缘设备 AI Agent Executor。
-请严格输出 ReAct 三段式，不要额外输出 Markdown：
+请严格输出 ReAct 三段式，不要输出额外 Markdown。
 
 Thought: ...
 Action: READ_SKILL | USE_TOOL | FINISH
@@ -240,6 +344,7 @@ def _normalize_plan(plan: list[dict[str, Any]], user_input: str) -> list[dict[st
         if kind == "use_tool":
             task.setdefault("tool_name", "COUNT_TEXT_CHARS")
             task.setdefault("tool_input", {"text": user_input})
+            _repair_file_tool_route(task, user_input)
 
         normalized.append(task)
 
@@ -254,7 +359,6 @@ def _normalize_plan(plan: list[dict[str, Any]], user_input: str) -> list[dict[st
 
 
 def _expected_action_for_task(current_task: dict[str, Any]) -> tuple[str, str]:
-    """小模型输出不稳定时，根据任务 schema 给出确定性动作。"""
     last_observation = str(current_task.get("last_observation", ""))
     if last_observation:
         return "FINISH", f"当前步骤完成。Observation 摘要：{last_observation[:300]}"
@@ -275,7 +379,6 @@ def _expected_action_for_task(current_task: dict[str, Any]) -> tuple[str, str]:
 def _coerce_action_for_task(
     current_task: dict[str, Any], action: str, action_input: str
 ) -> tuple[str, str]:
-    """把本地小模型的近似 ReAct 输出矫正成拦截器能执行的动作。"""
     expected_action, expected_input = _expected_action_for_task(current_task)
 
     if current_task.get("last_observation"):
@@ -290,6 +393,79 @@ def _coerce_action_for_task(
     return action, action_input
 
 
+def _repair_file_tool_route(task: dict[str, Any], user_input: str) -> None:
+    tool_name = str(task.get("tool_name", "")).strip().upper()
+    tool_input = task.get("tool_input")
+    if not isinstance(tool_input, dict):
+        return
+
+    path = _resolve_attachment_path(_extract_workspace_file_path(tool_input, user_input), user_input)
+    if not path:
+        return
+
+    suffix = Path(path).suffix.lower()
+    if suffix in TEXT_FILE_EXTENSIONS:
+        task["tool_name"] = "SAFE_READ_TEXT_FILE"
+        task["tool_input"] = {"path": path}
+        return
+
+    if suffix in MINERU_FILE_EXTENSIONS and tool_name in {"SAFE_READ_TEXT_FILE", "COUNT_TEXT_CHARS"}:
+        task["tool_name"] = "PARSE_DOCUMENT_WITH_MINERU"
+        task["tool_input"] = {"path": path}
+
+
+def _extract_workspace_file_path(tool_input: dict[str, Any], user_input: str) -> str:
+    for key in ("path", "file_path", "filename", "file"):
+        value = tool_input.get(key)
+        if isinstance(value, str) and Path(value).suffix:
+            return value.strip()
+
+    attachment_refs = _attachment_file_refs(user_input)
+    if attachment_refs:
+        return attachment_refs[0][1]
+
+    extensions = sorted(TEXT_FILE_EXTENSIONS | MINERU_FILE_EXTENSIONS, key=len, reverse=True)
+    pattern = r"([A-Za-z0-9_.\-/]+(?:%s))" % "|".join(re.escape(ext) for ext in extensions)
+    match = re.search(pattern, user_input, flags=re.IGNORECASE)
+    return match.group(1).strip("，。；;:,<>\"'") if match else ""
+
+
+def _resolve_attachment_path(path: str, user_input: str) -> str:
+    if not path:
+        return ""
+    normalized = path.strip()
+    if normalized.startswith("uploads/"):
+        return normalized
+
+    path_name = Path(normalized).name
+    for display_name, stored_path in _attachment_file_refs(user_input):
+        stored_name = Path(stored_path).name
+        if normalized in {display_name, stored_path, stored_name}:
+            return stored_path
+        if path_name in {display_name, stored_name}:
+            return stored_path
+        if stored_name.endswith(f"-{path_name}"):
+            return stored_path
+    return normalized
+
+
+def _attachment_file_refs(user_input: str) -> list[tuple[str, str]]:
+    refs: list[tuple[str, str]] = []
+    match = re.search(r"<attachments>(.*?)</attachments>", user_input, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return refs
+
+    extensions = sorted(TEXT_FILE_EXTENSIONS | MINERU_FILE_EXTENSIONS, key=len, reverse=True)
+    ext_pattern = "|".join(re.escape(ext) for ext in extensions)
+    line_pattern = re.compile(
+        r"-\s*(?P<name>[^:\n]+?)\s*:\s*(?P<path>[A-Za-z0-9_.\-/]+(?:%s))" % ext_pattern,
+        flags=re.IGNORECASE,
+    )
+    for line_match in line_pattern.finditer(match.group(1)):
+        refs.append((line_match.group("name").strip(), line_match.group("path").strip()))
+    return refs
+
+
 def _finish_observed_task(
     plan: list[dict[str, Any]], past_steps: list[tuple], current_task: dict[str, Any]
 ) -> Dict[str, Any]:
@@ -300,7 +476,7 @@ def _finish_observed_task(
     past_steps.append((("FINISH", f"step={current_task.get('id')}"), result))
 
     route = "next_task" if plan else "end"
-    response = _build_summary(past_steps) if route == "end" else f"步骤 {current_task.get('id')} 完成：{result}"
+    response = _build_summary(past_steps, "") if route == "end" else f"步骤 {current_task.get('id')} 完成：{result}"
     return {
         "plan": plan,
         "past_steps": past_steps,
@@ -331,16 +507,16 @@ def _requeue_with_observation(
         "past_steps": past_steps,
         "current_response": (
             f"{ROUTE_PREFIX}react_loop\n"
-            f"步骤 {current_task.get('id')} 执行 {action}，已获得 Observation，进入下一轮反思。\n"
+            f"步骤 {current_task.get('id')} 已执行 {action}，获得 Observation，进入下一轮反思。\n"
             f"Observation: {observation[:600]}"
         ),
     }
 
 
-def _build_summary(past_steps: list[tuple]) -> str:
+def _build_summary(past_steps: list[tuple], user_input: str = "") -> str:
     lines = ["全部任务完成。"]
 
-    final_answer = _extract_final_answer(past_steps)
+    final_answer = _extract_final_answer(past_steps, user_input)
     if final_answer:
         lines.extend(["", "任务执行结果：", *final_answer])
 
@@ -352,7 +528,7 @@ def _build_summary(past_steps: list[tuple]) -> str:
     return "\n".join(lines)
 
 
-def _extract_final_answer(past_steps: list[tuple]) -> list[str]:
+def _extract_final_answer(past_steps: list[tuple], user_input: str = "") -> list[str]:
     answers: list[str] = []
 
     for action_info, observation in past_steps:
@@ -369,11 +545,60 @@ def _extract_final_answer(past_steps: list[tuple]) -> list[str]:
         if tool_name == "SAFE_READ_TEXT_FILE" and "content" in payload:
             path = payload.get("path", "文件")
             content = str(payload.get("content", "")).rstrip("\n")
-            answers.append(f"已读取 {path}，内容为：{content}")
+            if _wants_content_summary(user_input):
+                answers.append(_summarize_read_content(path=str(path), content=content, user_input=user_input))
+            else:
+                answers.append(f"已读取 {path}，内容为：{content}")
         elif tool_name == "COUNT_TEXT_CHARS" and "chars" in payload:
             answers.append(f"字符统计结果：{payload['chars']} 个字符。")
+        elif tool_name in {"PARSE_DOCUMENT_WITH_MINERU", "MINERU_PARSE_DOCUMENT"}:
+            md_path = payload.get("markdown_path") or "未生成 Markdown"
+            content_path = payload.get("content_list_v2_path") or "未生成 content_list_v2"
+            answers.append(f"文档解析完成。Markdown：{md_path}；结构化结果：{content_path}")
 
     return answers
+
+
+def _wants_content_summary(user_input: str) -> bool:
+    lowered = user_input.lower()
+    keywords = {
+        "总结",
+        "摘要",
+        "概括",
+        "主要内容",
+        "关键事实",
+        "关键结论",
+        "结论",
+        "待办",
+        "提炼",
+        "梳理",
+        "summary",
+        "summarize",
+    }
+    return any(keyword in lowered for keyword in keywords)
+
+
+def _summarize_read_content(*, path: str, content: str, user_input: str) -> str:
+    if not content.strip():
+        return f"已读取 {path}，但文件内容为空，无法生成摘要。"
+
+    prompt = f"""
+你是离线边缘端 Agent 的文档总结器。
+请严格根据文件内容回答用户请求，不要编造文件中没有的信息。
+如果文件内容中包含用户要求的固定输出格式或固定句子，请优先遵循用户请求。
+
+用户请求：
+{user_input}
+
+文件路径：
+{path}
+
+文件内容：
+{content[:12000]}
+
+请用中文输出最终结果。不要输出工具调用过程，不要输出 Action/Observation。
+""".strip()
+    return llm_call(prompt).strip()
 
 
 def _json_payload(value: Any) -> dict[str, Any] | None:

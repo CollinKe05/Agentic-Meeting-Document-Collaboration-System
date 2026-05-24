@@ -1,6 +1,4 @@
 param(
-    [switch] $Mock,
-
     [Parameter(ValueFromRemainingArguments = $true)]
     [string[]] $Prompt
 )
@@ -11,16 +9,10 @@ $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $projectDir = Split-Path -Parent $scriptDir
 $projectDir = (Resolve-Path $projectDir).Path
 $promptText = ($Prompt -join " ").Trim()
+$distro = if ($env:WSL_DISTRO) { $env:WSL_DISTRO } else { "Ubuntu-22.04" }
 
 if (-not $promptText) {
     $promptText = "Please read demo_input.txt and count the length of my input."
-}
-
-if ($Mock) {
-    $backend = "mock"
-}
-else {
-    $backend = "ollama"
 }
 
 if ($projectDir -match '^([A-Za-z]):\\(.*)$') {
@@ -32,4 +24,4 @@ else {
     throw "Only Windows drive paths are supported by this helper: $projectDir"
 }
 
-& wsl.exe -u root --cd "$wslProjectDir" env "AGENT_LLM_BACKEND=$backend" bash scripts/run_wsl.sh "$promptText"
+& wsl.exe -d "$distro" -u root --cd "$wslProjectDir" bash scripts/run_wsl.sh "$promptText"
