@@ -17,7 +17,7 @@ from .paths import WORKSPACE_DIR
 EVENT_USER_MESSAGE = "USER_MESSAGE"
 EVENT_PLAN_REQUESTED = "PLAN_REQUESTED"
 EVENT_TOOL_REQUESTED = "TOOL_REQUESTED"
-EVENT_MINERU_REQUIRED = "MINERU_REQUIRED"
+EVENT_OCR_REQUIRED = "OCR_REQUIRED"
 EVENT_ASR_SEGMENT_READY = "ASR_SEGMENT_READY"
 EVENT_REVIEW_REQUESTED = "REVIEW_REQUESTED"
 EVENT_TASK_DONE = "TASK_DONE"
@@ -92,11 +92,11 @@ def features() -> list[dict[str, Any]]:
         {
             "id": "parse-file",
             "title": "文件解析",
-            "description": "调用 MinerU 解析 PDF、图片或 Office 文件。",
+            "description": "调用 OCR/PaddleOCR 解析 PDF 或图片文件。",
             "needsFile": True,
             "prompt": (
-                "请使用 PARSE_DOCUMENT_WITH_MINERU 解析文件 {path}，返回 Markdown、"
-                "content_list_v2、图片目录，并总结解析结果。"
+                "请使用 PARSE_DOCUMENT_WITH_OCR_PC 解析文件 {path}，返回 Markdown、"
+                "content_list_v2、图片目录，并总结 OCR 解析结果。"
             ),
         },
         {
@@ -126,6 +126,14 @@ def features() -> list[dict[str, Any]]:
             "description": "查看当前本地 Skill.md 能力。",
             "needsFile": False,
             "prompt": "请列出当前可用技能，并说明每个技能适合处理什么任务。",
+        },
+        {
+            "id": "meeting-summary",
+            "title": "会议总结",
+            "description": "总结当前会议转写，提取结论和待办。",
+            "needsFile": False,
+            "action": "meeting-summary",
+            "prompt": "请总结当前会议记录，输出会议纪要、关键结论和待办事项。",
         },
     ]
 
@@ -225,7 +233,7 @@ def _emit_step_events(state: SharedState) -> None:
         action_info, observation = item
         action = action_info[0] if isinstance(action_info, tuple) and action_info else str(action_info)
         action_input = action_info[1] if isinstance(action_info, tuple) and len(action_info) > 1 else ""
-        event_type = EVENT_MINERU_REQUIRED if "MINERU" in str(action_input).upper() else EVENT_TOOL_REQUESTED
+        event_type = EVENT_OCR_REQUIRED if "OCR" in str(action_input).upper() else EVENT_TOOL_REQUESTED
         _event(
             state,
             event_type,

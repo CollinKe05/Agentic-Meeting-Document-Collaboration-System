@@ -9,14 +9,15 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterator, Literal, Sequence
+from typing import Any, Iterator, Literal, Sequence
+from uuid import uuid4
 
 import requests
 
 from .paths import PROJECT_ROOT
 
 
-EngineState = Literal["IDLE", "LLM_RUNNING", "MINERU_RUNNING", "ASR_STREAMING", "OCR_RUNNING"]
+EngineState = Literal["IDLE", "LLM_RUNNING", "ASR_STREAMING", "OCR_RUNNING"]
 
 RUNTIME_DIR = Path(os.environ.get("AGENT_RUNTIME_DIR", PROJECT_ROOT / ".runtime")).expanduser()
 DEFAULT_LLAMA_CPP_BASE_URL = "http://127.0.0.1:8080/v1"
@@ -28,6 +29,7 @@ DEFAULT_LLAMA_CPP_CTX_SIZE = 4096
 _lock = threading.RLock()
 _active_engine: EngineState = "IDLE"
 _llama_process: subprocess.Popen[bytes] | None = None
+_resource_tokens: dict[str, dict[str, Any]] = {}
 
 
 class EngineBusyError(RuntimeError):
@@ -100,8 +102,8 @@ def ensure_llama_server_running() -> None:
     global _llama_process
 
     with _lock:
-        if _active_engine == "MINERU_RUNNING":
-            raise EngineBusyError("Cannot start llama-server while MinerU is running")
+        if _active_engine == "OCR_RUNNING":
+            raise EngineBusyError("Cannot start llama-server while OCR is running")
 
         if _is_live_process(_llama_process):
             _wait_for_llama_server_ready()
@@ -191,7 +193,84 @@ def llm_request_guard() -> Iterator[None]:
             _active_engine = "IDLE"
 
 
-def run_mineru_blocking(
+def create_resource_token(task_id: str, resource: EngineState) -> str:
+    if resource in {"IDLE", "LLM_RUNNING"}:
+        raise ValueError("resource token can only be created for external engines")
+    token = uuid4().hex
+    with _lock:
+        _resource_tokens[token] = {"task_id": task_id, "resource": resource, "granted": False}
+    return token
+
+
+def request_runtime_resource(
+    *,
+    token: str,
+    resource: EngineState,
+    task_id: str,
+    pid: int | None = None,
+    reason: str = "",
+) -> dict[str, Any]:
+    _record_runtime_event(
+        task_id,
+        "RESOURCE_REQUESTED",
+        "资源中断请求",
+        f"{resource} requested by pid={pid or 'unknown'}; {reason}".strip(),
+        {"resource": resource, "pid": pid, "reason": reason},
+    )
+    with _lock:
+        record = _resource_tokens.get(token)
+        if not record or record.get("task_id") != task_id or record.get("resource") != resource:
+            raise PermissionError("invalid resource token")
+        if _active_engine not in {"IDLE", resource}:
+            raise EngineBusyError(f"Cannot grant {resource}; {_active_engine} is active")
+
+    stop_llama_server(force=True)
+    _record_runtime_event(
+        task_id,
+        "LLAMA_SERVER_STOPPED",
+        "llama-server 已让出资源",
+        "收到 OCR 中断请求后，已停止受控 llama-server。",
+        {"resource": resource, "pid": pid},
+    )
+
+    with _lock:
+        if _active_engine not in {"IDLE", resource}:
+            raise EngineBusyError(f"Cannot grant {resource}; {_active_engine} is active")
+        _set_active_engine(resource)
+        record = _resource_tokens[token]
+        record.update({"granted": True, "pid": pid, "reason": reason, "granted_at": time.time()})
+    _record_runtime_event(
+        task_id,
+        "RESOURCE_GRANTED",
+        "资源已授予",
+        f"{resource} 已进入运行状态。",
+        {"resource": resource, "pid": pid, "active_engine": get_active_engine()},
+    )
+    return {"ok": True, "granted": True, "resource": resource, "active_engine": get_active_engine()}
+
+
+def release_runtime_resource(*, token: str, task_id: str | None = None, resource: EngineState | None = None) -> dict[str, Any]:
+    with _lock:
+        record = _resource_tokens.pop(token, None)
+        if record is None:
+            return {"ok": True, "released": False, "active_engine": _active_engine}
+        if task_id is not None and record.get("task_id") != task_id:
+            raise PermissionError("resource token does not belong to task")
+        expected_resource = resource or record.get("resource")
+        if _active_engine == expected_resource:
+            _set_active_engine("IDLE")
+        active_engine = _active_engine
+    _record_runtime_event(
+        str(record.get("task_id") or task_id or ""),
+        "RESOURCE_RELEASED",
+        "资源已释放",
+        f"{expected_resource} 已释放，重型资源状态回到 {active_engine}。",
+        {"resource": expected_resource, "active_engine": active_engine},
+    )
+    return {"ok": True, "released": True, "active_engine": active_engine}
+
+
+def run_ocr_blocking(
     command: Sequence[str],
     *,
     cwd: Path | None,
@@ -199,14 +278,18 @@ def run_mineru_blocking(
     timeout_seconds: float,
     log_path: Path,
     restart_llama: bool,
+    token: str | None = None,
+    task_id: str | None = None,
 ) -> ManagedProcessResult:
-    """Run MinerU as the only active heavy engine, restarting llama-server afterward."""
-    stop_llama_server()
+    """Run OCR as an interruptible external process.
+
+    The child process must request OCR_RUNNING through the local callback before
+    importing/loading OCR models, then release it before exit.
+    """
     result: ManagedProcessResult | None = None
     try:
-        result = run_exclusive_process(
+        result = run_interruptible_process(
             command,
-            engine_state="MINERU_RUNNING",
             cwd=cwd,
             env=env,
             timeout_seconds=timeout_seconds,
@@ -214,8 +297,57 @@ def run_mineru_blocking(
         )
         return result
     finally:
+        if token:
+            release_runtime_resource(token=token, task_id=task_id, resource="OCR_RUNNING")
         if restart_llama:
             ensure_llama_server_running()
+
+
+def run_interruptible_process(
+    command: Sequence[str],
+    *,
+    cwd: Path | None,
+    env: dict[str, str],
+    timeout_seconds: float,
+    log_path: Path,
+) -> ManagedProcessResult:
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    process: subprocess.Popen[bytes] | None = None
+    try:
+        with log_path.open("ab") as log_file:
+            process = subprocess.Popen(
+                list(command),
+                cwd=str(cwd or PROJECT_ROOT),
+                env=env,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                **_new_process_group_kwargs(),
+            )
+
+        try:
+            returncode = process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired as exc:
+            _terminate_process_group(process, grace_seconds=5)
+            tail = _read_tail(log_path)
+            raise ManagedProcessError(
+                f"Process timed out after {timeout_seconds} seconds: {' '.join(command)}",
+                returncode=None,
+                log_path=log_path,
+                log_tail=tail,
+            ) from exc
+
+        tail = _read_tail(log_path)
+        if returncode != 0:
+            raise ManagedProcessError(
+                f"Process exited with code {returncode}: {' '.join(command)}",
+                returncode=returncode,
+                log_path=log_path,
+                log_tail=tail,
+            )
+        return ManagedProcessResult(tuple(command), returncode, log_path, tail)
+    finally:
+        if process is not None and _is_live_process(process):
+            _terminate_process_group(process, grace_seconds=5)
 
 
 def run_exclusive_process(
@@ -280,6 +412,11 @@ def run_exclusive_process(
 
 def cleanup_managed_processes() -> None:
     stop_llama_server(force=True)
+
+
+def _set_active_engine(state: EngineState) -> None:
+    global _active_engine
+    _active_engine = state
 
 
 def _wait_for_llama_server_ready() -> None:
@@ -369,6 +506,29 @@ def _read_tail(path: Path, *, max_bytes: int = 4096) -> str:
         size = handle.tell()
         handle.seek(max(0, size - max_bytes), os.SEEK_SET)
         return handle.read().decode("utf-8", errors="replace")
+
+
+def _record_runtime_event(
+    task_id: str,
+    event_type: str,
+    title: str,
+    message: str,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    if not task_id:
+        return
+    try:
+        from . import task_store
+
+        task_store.add_event(
+            task_id,
+            event_type,
+            title,
+            message,
+            {"active_engine": get_active_engine(), **(payload or {})},
+        )
+    except Exception:
+        return
 
 
 def _env_flag(name: str, *, default: bool) -> bool:

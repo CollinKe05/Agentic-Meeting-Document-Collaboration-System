@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .mineru_tool import parse_document_with_mineru
+from .ocr_pc_tool import parse_document_with_ocr_pc
 from .paths import (
     SKILLS_DIR,
     WORKSPACE_DIR,
@@ -76,7 +76,7 @@ def _execute_local_tool(tool_name: str, args: dict[str, Any]) -> str:
         write_limited_text(file_path, text, overwrite=overwrite)
         return json_observation({"ok": True, "path": rel_path, "bytes": len(text.encode("utf-8"))})
 
-    if tool_name in {"PARSE_DOCUMENT_WITH_MINERU", "MINERU_PARSE_DOCUMENT"}:
-        return json_observation(parse_document_with_mineru(args))
+    if tool_name in {"PARSE_DOCUMENT_WITH_OCR_PC", "OCR_PC_PARSE_DOCUMENT"}:
+        return json_observation(parse_document_with_ocr_pc(args))
 
     return json_observation({"ok": False, "error": f"未知本地工具：{tool_name}"})

@@ -50,6 +50,10 @@
                 <span class="w-2 h-2 rounded-full bg-green-500"></span> 
                 Agent 在线 (本地运行)
             </span>
+            <span class="hidden md:flex items-center gap-1.5">
+                <span id="resource-status-dot" class="w-2 h-2 rounded-full bg-slate-300"></span>
+                <span id="resource-status-text">资源状态：读取中</span>
+            </span>
         </div>
     </header>
 
@@ -189,6 +193,13 @@
                         <!-- 文本输入框 -->
                         <textarea id="prompt-input" rows="1" class="flex-1 bg-transparent border-0 outline-none resize-none py-2.5 px-2 text-sm text-gray-700 placeholder-gray-400 max-h-32" placeholder="输入你的指令，或将本地文件拖拽至此..." oninput="autoResize(this)"></textarea>
                         
+                        <!-- 语音输入按钮 -->
+                        <button id="voice-input-btn" class="p-2.5 text-gray-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-colors focus:outline-none" title="语音输入">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.5v3m0 0h3m-3 0H9M8 10a4 4 0 108 0V6a4 4 0 10-8 0v4zm10 0a6 6 0 01-12 0" />
+                            </svg>
+                        </button>
+
                         <!-- 发送按钮 -->
                         <button onclick="sendMessage()" class="p-2.5 bg-blue-600 text-white hover:bg-blue-700 rounded-lg transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none" id="send-btn">
                             <!-- 发送纸飞机 SVG -->
@@ -334,8 +345,22 @@
         </div>
     </div>
 
+    <!-- 会议控制 -->
+    <div id="meeting-control" class="fixed bottom-6 right-6 z-50 bg-white border border-gray-100 shadow-xl rounded-xl p-3 w-64">
+        <div class="flex items-center justify-between gap-3">
+            <div>
+                <p class="text-xs font-semibold text-gray-800">会议记录</p>
+                <p id="meeting-status-text" class="text-[11px] text-green-600 mt-0.5">等待会议请求</p>
+            </div>
+            <div class="flex items-center gap-2">
+                <span id="meeting-status-dot" class="w-2.5 h-2.5 rounded-full bg-green-500"></span>
+                <button id="meeting-toggle-btn" class="px-3 py-1.5 rounded-lg bg-gray-900 text-white text-xs font-medium hover:bg-gray-700 focus:outline-none">ON</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 自定义轻量级 Toast 提示区域 -->
-    <div id="toast-container" class="fixed bottom-6 right-6 flex flex-col gap-2 z-50"></div>
+    <div id="toast-container" class="fixed bottom-28 right-6 flex flex-col gap-2 z-50"></div>
 
 
     <script>

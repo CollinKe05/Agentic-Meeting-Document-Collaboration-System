@@ -21,7 +21,7 @@ def ensure_demo_assets() -> None:
 可用技能：
 
 - `read_file_skill.md`：学习如何安全读取本地文本文件。
-- `local_tool_skill.md`：学习当前可用的本地工具，包括 MinerU 文档解析。
+- `local_tool_skill.md`：学习当前可用的本地工具，包括 OCR/PaddleOCR 文档解析。
 """,
         SKILLS_DIR / "read_file_skill.md": """# 安全读取文件技能
 
@@ -36,7 +36,7 @@ Action Input:
         SKILLS_DIR / "local_tool_skill.md": """# 本地工具技能
 
 可用工具：LOCAL_ECHO、COUNT_TEXT_CHARS、LIST_SKILLS、SAFE_READ_TEXT_FILE、
-SAFE_WRITE_TEXT_FILE、PARSE_DOCUMENT_WITH_MINERU。
+SAFE_WRITE_TEXT_FILE、PARSE_DOCUMENT_WITH_OCR_PC。
 """,
         WORKSPACE_DIR / "demo_input.txt": "这是一个可以在 Windows、WSL 或 Ubuntu 中读取的离线演示文件。\n",
     }

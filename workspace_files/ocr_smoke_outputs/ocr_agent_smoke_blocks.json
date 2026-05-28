@@ -1,0 +1,184 @@
+[
+  {
+    "type": "text",
+    "box": [
+      73,
+      44,
+      210,
+      55
+    ],
+    "text": [
+      "香港科技大學"
+    ],
+    "page": 1
+  },
+  {
+    "type": "text",
+    "box": [
+      333,
+      49,
+      394,
+      63
+    ],
+    "text": [
+      "工學院"
+    ],
+    "page": 1
+  },
+  {
+    "type": "text",
+    "box": [
+      70,
+      62,
+      223,
+      72
+    ],
+    "text": [
+      "THEHONGKONG"
+    ],
+    "page": 1
+  },
+  {
+    "type": "text",
+    "box": [
+      325,
+      67,
+      424,
+      79
+    ],
+    "text": [
+      "SCHOOLOF"
+    ],
+    "page": 1
+  },
+  {
+    "type": "text",
+    "box": [
+      65,
+      78,
+      267,
+      88
+    ],
+    "text": [
+      "UNIVERSITYOFSCIENCE"
+    ],
+    "page": 1
+  },
+  {
+    "type": "text",
+    "box": [
+      320,
+      84,
+      441,
+      94
+    ],
+    "text": [
+      "ENGINEERING"
+    ],
+    "page": 1
+  },
+  {
+    "type": "text",
+    "box": [
+      70,
+      94,
+      230,
+      104
+    ],
+    "text": [
+      "ANDTECHNOLOGY"
+    ],
+    "page": 1
+  },
+  {
+    "type": "text",
+    "box": [
+      0,
+      545,
+      1042,
+      578
+    ],
+    "text": [
+      "GraduateProgramsP/MPln"
+    ],
+    "page": 1
+  },
+  {
+    "type": "text",
+    "box": [
+      0,
+      609,
+      1086,
+      647
+    ],
+    "text": [
+      "ChemicaladBiooqialEnginern"
+    ],
+    "page": 1
+  },
+  {
+    "type": "text",
+    "box": [
+      0,
+      674,
+      724,
+      704
+    ],
+    "text": [
+      "【化学「程及生物工程学】"
+    ],
+    "page": 1
+  },
+  {
+    "type": "text",
+    "box": [
+      1072,
+      32,
+      1225,
+      44
+    ],
+    "text": [
+      "DEPARTMENTOF"
+    ],
+    "page": 1
+  },
+  {
+    "type": "text",
+    "box": [
+      1029,
+      51,
+      1439,
+      65
+    ],
+    "text": [
+      "CCHEMICALANDBIOLOGCAL"
+    ],
+    "page": 1
+  },
+  {
+    "type": "text",
+    "box": [
+      1065,
+      71,
+      1263,
+      85
+    ],
+    "text": [
+      "ENGINEERING"
+    ],
+    "page": 1
+  },
+  {
+    "type": "text",
+    "box": [
+      1064,
+      94,
+      1275,
+      109
+    ],
+    "text": [
+      "化學及生物工程學系"
+    ],
+    "page": 1
+  }
+]

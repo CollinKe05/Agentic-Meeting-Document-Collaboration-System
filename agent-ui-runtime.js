@@ -7,6 +7,12 @@
   const thoughtStepsContainer = document.getElementById('thought-steps');
   const taskList = document.getElementById('task-list');
   const sendButton = document.getElementById('send-btn');
+  const voiceInputButton = document.getElementById('voice-input-btn');
+  const meetingToggleButton = document.getElementById('meeting-toggle-btn');
+  const meetingStatusText = document.getElementById('meeting-status-text');
+  const meetingStatusDot = document.getElementById('meeting-status-dot');
+  const resourceStatusText = document.getElementById('resource-status-text');
+  const resourceStatusDot = document.getElementById('resource-status-dot');
   const skillEditor = document.querySelector('textarea[placeholder^="在此定义Agent技能"]');
   const skillSaveButton = document.getElementById('save-skill-button') || document.querySelector('button[onclick*="已保存技能配置"]');
   const featuresPanel = document.querySelector('main > aside:last-child .p-3.overflow-y-auto');
@@ -16,6 +22,8 @@
   let activeEventSource = null;
   let currentSkillName = 'ui_skill.md';
   let currentTaskDoneShown = false;
+  let meetingRunning = false;
+  let voiceInputRunning = false;
 
   function escapeHtml(value) {
     return String(value)
@@ -35,6 +43,7 @@
       bot: `<svg class="${klass}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 3v2m6-2v2M5 9H3m18 0h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h.01M15 9h.01M8 14h8" /></svg>`,
       user: `<svg class="${klass}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>`,
       send: `<svg class="${klass}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>`,
+      mic: `<svg class="${klass}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 18.5v3m0 0h3m-3 0H9M8 10a4 4 0 108 0V6a4 4 0 10-8 0v4zm10 0a6 6 0 01-12 0" /></svg>`,
       x: `<svg class="${klass}" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>`
     };
     return icons[kind] || icons.ok;
@@ -309,6 +318,10 @@
         </div>
       `;
       button.addEventListener('click', () => {
+        if (feature.action === 'meeting-summary') {
+          requestMeetingSummary();
+          return;
+        }
         if (feature.needsFile) {
           pendingFeature = feature;
           fileInput.click();
@@ -346,6 +359,121 @@
     }
   }
 
+  function updateMeetingUi(status) {
+    meetingRunning = Boolean(status && status.running);
+    if (meetingStatusText) {
+      meetingStatusText.textContent = meetingRunning ? '会议中' : '等待会议请求';
+      meetingStatusText.className = `text-[11px] mt-0.5 ${meetingRunning ? 'text-red-600' : 'text-green-600'}`;
+    }
+    if (meetingStatusDot) {
+      meetingStatusDot.className = `w-2.5 h-2.5 rounded-full ${meetingRunning ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`;
+    }
+    if (meetingToggleButton) {
+      meetingToggleButton.textContent = meetingRunning ? 'OFF' : 'ON';
+      meetingToggleButton.className = `px-3 py-1.5 rounded-lg text-white text-xs font-medium focus:outline-none ${
+        meetingRunning ? 'bg-red-600 hover:bg-red-700' : 'bg-gray-900 hover:bg-gray-700'
+      }`;
+    }
+  }
+
+  function updateResourceUi(status) {
+    if (!resourceStatusText && !resourceStatusDot) return;
+    const engine = status && status.active_engine ? status.active_engine : 'UNKNOWN';
+    const llamaRunning = Boolean(status && status.llama_server_running);
+    const label = `资源状态：${engine} / llama-server ${llamaRunning ? '运行中' : '已停止'}`;
+    const colorClass = engine === 'IDLE'
+      ? 'bg-green-500'
+      : engine === 'OCR_RUNNING'
+        ? 'bg-amber-500 animate-pulse'
+        : engine === 'ASR_STREAMING'
+          ? 'bg-red-500 animate-pulse'
+          : 'bg-blue-500 animate-pulse';
+    if (resourceStatusText) resourceStatusText.textContent = label;
+    if (resourceStatusDot) resourceStatusDot.className = `w-2 h-2 rounded-full ${colorClass}`;
+  }
+
+  async function refreshSystemStatus() {
+    try {
+      const response = await fetch('/api/system/status');
+      const payload = await response.json();
+      if (payload.ok) updateResourceUi(payload);
+    } catch {
+      return;
+    }
+  }
+
+  async function refreshMeetingStatus() {
+    try {
+      const response = await fetch('/api/meeting/status');
+      const payload = await response.json();
+      if (payload.ok) updateMeetingUi(payload.meeting || {});
+    } catch {
+      return;
+    }
+  }
+
+  async function toggleMeeting() {
+    try {
+      if (meetingRunning) {
+        const payload = await postJson('/api/meeting/stop', {});
+        updateMeetingUi(payload.meeting || {});
+        const transcript = (payload.meeting && payload.meeting.transcript) || '';
+        appendMessage('agent', transcript ? `会议记录已结束：\n\n${transcript}` : '会议记录已结束，但没有读取到转写内容。');
+      } else {
+        const payload = await postJson('/api/meeting/start', {});
+        updateMeetingUi(payload.meeting || {});
+        toast('会议记录已开启');
+      }
+    } catch (error) {
+      appendMessage('error', `会议控制失败：${error.message}`);
+    }
+  }
+
+  async function requestMeetingSummary() {
+    try {
+      const payload = await postJson('/api/meeting/summary', {});
+      thoughtStepsContainer.innerHTML = '';
+      thoughtProcessPanel.classList.remove('hidden');
+      subscribeTask(payload.task_id);
+      await loadTasks();
+    } catch (error) {
+      appendMessage('error', `会议总结失败：${error.message}`);
+    }
+  }
+
+  function updateVoiceButton() {
+    if (!voiceInputButton) return;
+    voiceInputButton.className = `p-2.5 rounded-lg transition-colors focus:outline-none ${
+      voiceInputRunning ? 'text-white bg-rose-600 hover:bg-rose-700' : 'text-gray-400 hover:text-rose-500 hover:bg-rose-50'
+    }`;
+    voiceInputButton.innerHTML = voiceInputRunning ? iconSvg('run', 'w-5 h-5 text-white') : iconSvg('mic', 'w-5 h-5');
+  }
+
+  async function toggleVoiceInput() {
+    try {
+      if (voiceInputRunning) {
+        const payload = await postJson('/api/voice-input/stop', {});
+        voiceInputRunning = false;
+        updateVoiceButton();
+        const transcript = (payload.voice_input && payload.voice_input.transcript || '').trim();
+        if (transcript) {
+          inputElement.value = transcript;
+          inputElement.focus();
+          if (typeof window.autoResize === 'function') window.autoResize(inputElement);
+        }
+      } else {
+        await postJson('/api/voice-input/start', {});
+        voiceInputRunning = true;
+        updateVoiceButton();
+        toast('语音输入已开启，再次点击结束');
+      }
+    } catch (error) {
+      voiceInputRunning = false;
+      updateVoiceButton();
+      appendMessage('error', `语音输入失败：${error.message}`);
+    }
+  }
+
   window.sendMessage = function () {
     submitTask(inputElement.value, selectedFiles);
   };
@@ -363,7 +491,7 @@
 
   window.triggerFunction = function (type) {
     const fallback = {
-      file_parse: { prompt: '请读取并解析本地文件 {path}，提取关键信息。', needsFile: true },
+      file_parse: { prompt: '请使用 PARSE_DOCUMENT_WITH_OCR_PC 解析文件 {path}，返回 Markdown、content_list_v2、图片目录，并总结 OCR 解析结果。', needsFile: true },
       code_review: { prompt: '请读取代码文件 {path}，做一次代码 Review。', needsFile: true }
     };
     pendingFeature = fallback[type] || fallback.file_parse;
@@ -371,6 +499,7 @@
   };
 
   fileInput.addEventListener('change', event => {
+    event.stopImmediatePropagation();
     const incoming = Array.from(event.target.files || []);
     if (!incoming.length) return;
     if (pendingFeature) {
@@ -383,22 +512,30 @@
     }
     selectedFiles = selectedFiles.concat(incoming);
     renderFilePreviews();
+    fileInput.value = '';
   }, true);
 
   const dropZone = document.getElementById('drop-zone');
   dropZone.addEventListener('drop', event => {
+    event.stopImmediatePropagation();
     const incoming = Array.from(event.dataTransfer.files || []);
     if (!incoming.length) return;
     selectedFiles = selectedFiles.concat(incoming);
     renderFilePreviews();
-  });
+  }, true);
 
   if (skillSaveButton) {
     skillSaveButton.removeAttribute('onclick');
     skillSaveButton.addEventListener('click', saveSkill);
   }
+  if (meetingToggleButton) meetingToggleButton.addEventListener('click', toggleMeeting);
+  if (voiceInputButton) voiceInputButton.addEventListener('click', toggleVoiceInput);
 
   loadTasks();
   loadFeatures();
   loadSkill();
+  refreshMeetingStatus();
+  refreshSystemStatus();
+  setInterval(refreshMeetingStatus, 3000);
+  setInterval(refreshSystemStatus, 3000);
 })();

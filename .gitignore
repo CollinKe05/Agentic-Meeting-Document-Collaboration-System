@@ -15,3 +15,7 @@ build/
 mineru/
 
 *.gguf
+
+*.onnx
+
+*.wav

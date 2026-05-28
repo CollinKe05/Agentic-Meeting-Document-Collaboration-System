@@ -1,6 +1,6 @@
 # 离线边缘端 LangGraph Agent
 
-这是一个用于验证“边缘端 Agent 调度业务逻辑”的本地项目。当前版本以 WSL Ubuntu 作为测试环境，默认使用 `llama.cpp` 启动本地 `llama-server`，模型规划和执行由 LangGraph 编排，文档解析由 MinerU 作为互斥重型工具执行。
+这是一个用于验证“边缘端 Agent 调度业务逻辑”的本地项目。当前版本以 WSL Ubuntu 作为测试环境，默认使用 `llama.cpp` 启动本地 `llama-server`，模型规划和执行由 LangGraph 编排，文档解析由 OCR/PaddleOCR 作为互斥重型工具执行。
 
 ## 目前实现了什么
 
@@ -10,15 +10,15 @@
   - Python 进程会启动和管理 `llama-server`，并通过 `/v1/chat/completions` 调用。
   - 已移除 `mock` 和 `ollama` 后端；测试通过 patch llama.cpp 调用完成，不再提供运行时 mock。
 - 严格串行重型资源管理：
-  - LLM 推理和 MinerU 解析互斥。
-  - 调 MinerU 前会终止受控的 `llama-server`。
-  - MinerU 阻塞式运行结束后，再重新拉起 `llama-server`。
+  - LLM 推理和 OCR 解析互斥。
+  - 调 OCR 前会终止受控的 `llama-server`。
+  - OCR 阻塞式运行结束后，再重新拉起 `llama-server`。
   - 子进程通过进程组管理，超时或异常时会先终止、再强杀、最后等待回收。
 - 本地工具：
   - 读取技能文件。
   - 读取/写入 `workspace_files/` 下的文本文件。
   - 统计文本字符数。
-  - 调用 MinerU 解析 PDF、图片、DOCX、PPTX、XLSX。
+  - 调用 OCR/PaddleOCR 解析 PDF、图片。
 - Web UI：
   - 居中的聊天框。
   - 拖拽/点击上传文件。
@@ -26,6 +26,7 @@
   - 右侧“可用功能”快捷按钮。
   - 左下角任务记录。
   - 左上角自建/编辑 `skill.md` 窗口。
+  - 右下角会议记录开关与语音输入按钮。
 
 ## Agent 能干什么
 
@@ -35,7 +36,7 @@
 - 统计输入文本字符数。
 - 查看和学习本地 Markdown 技能。
 - 上传文件到 `workspace_files/uploads/`。
-- 对支持格式的文档调用 MinerU，生成 Markdown、`content_list_v2`、图片目录等解析产物。
+- 对支持格式的文档调用 OCR/PaddleOCR，生成 Markdown、`content_list_v2`、图片目录等解析产物。
 - 在 UI 中快速触发“文件读取”“文件解析”“列出技能”等任务。
 
 当前还不适合做这些事情：
@@ -43,7 +44,7 @@
 - 还没有完整的多轮长期记忆。
 - 还没有向量检索和大文档分块问答。
 - UI 使用 SSE 展示任务事件，但工具步骤仍是 MVP 粒度。
-- MinerU 真实解析依赖尚未在本项目脚本中一键安装完成。
+- OCR_pc 依赖需要按 `OCR_pc/OCR_pc/requirements.txt` 准备。
 - `llama.cpp` 和 Qwen GGUF 需要先单独下载/构建。
 - 没有用户权限系统，不建议直接暴露到公网。
 
@@ -57,9 +58,9 @@ flowchart TD
     D --> E["LangGraph Executor"]
     E --> F{"需要本地工具吗？"}
     F -->|"读取/写入/统计"| G["local_actions 本地工具"]
-    F -->|"文档解析"| H["进入 MinerU 互斥区"]
+    F -->|"文档解析"| H["进入 OCR 互斥区"]
     H --> I["停止受控 llama-server"]
-    I --> J["阻塞式运行 MinerU"]
+    I --> J["阻塞式运行 OCR/PaddleOCR"]
     J --> K["生成 Markdown / content_list_v2 / images"]
     K --> L["重启 llama-server"]
     G --> M["Observation 写回 Agent 状态"]
@@ -111,24 +112,23 @@ http://127.0.0.1:7860
 把文件放进 `workspace_files/`，或在 UI 中上传文件。然后使用类似 prompt：
 
 ```text
-请使用 PARSE_DOCUMENT_WITH_MINERU 解析文件 uploads/sample.pdf，返回 Markdown、content_list_v2、图片目录，并总结解析结果。
+请使用 PARSE_DOCUMENT_WITH_OCR_PC 解析文件 uploads/sample.pdf，返回 Markdown、content_list_v2、图片目录，并总结解析结果。
 ```
 
 工具会返回：
 
 - `markdown_path`
 - `content_list_v2_path`
-- `content_list_path`
-- `middle_json_path`
+- `blocks_json_path`
 - `images_dir`
 - `markdown_preview`
 - `log_path`
 
 ## 重要约束
 
-- 重型引擎必须串行：`llama-server` 和 MinerU 不能同时活跃。
+- 重型引擎必须串行：`llama-server` 和 OCR 不能同时活跃。
 - 不要在 UI 中并发提交多个重型任务。
 - 大 PDF 不要一次性塞进模型上下文，后续应接入分块摘要/检索。
 - 当前运行必须准备 `llama.cpp` 和 Qwen2.5-1.5B GGUF；没有无模型 mock 模式。
 - `.runtime/` 用于放 llama.cpp 和模型，不进入 git。
-- `mineru/` 是外部克隆源码目录，不进入 git。
+- `OCR_pc/`、`sherpa_asr/` 是外部能力目录，模型和虚拟环境不应进入 git。

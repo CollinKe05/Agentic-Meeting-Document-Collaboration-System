@@ -51,13 +51,13 @@ class GraphToolRoutingTest(unittest.TestCase):
         self.assertNotIn("内容为：这是一个测试文档", summary)
         llm_mock.assert_called_once()
 
-    def test_markdown_file_uses_safe_text_reader_even_if_planned_as_mineru(self) -> None:
+    def test_markdown_file_uses_safe_text_reader_even_if_planned_as_ocr(self) -> None:
         plan = [
             {"id": 1, "kind": "learn_skill", "skill_file": "local_tool_skill.md"},
             {
                 "id": 2,
                 "kind": "use_tool",
-                "tool_name": "PARSE_DOCUMENT_WITH_MINERU",
+                "tool_name": "PARSE_DOCUMENT_WITH_OCR_PC",
                 "tool_input": {"path": "uploads/readme.md"},
             },
         ]
@@ -89,7 +89,7 @@ class GraphToolRoutingTest(unittest.TestCase):
         self.assertEqual(normalized[1]["tool_name"], "SAFE_READ_TEXT_FILE")
         self.assertEqual(normalized[1]["tool_input"], {"path": "uploads/6840a4d7cb49-test.txt"})
 
-    def test_pdf_file_uses_mineru_even_if_planned_as_text_reader(self) -> None:
+    def test_pdf_file_uses_ocr_even_if_planned_as_text_reader(self) -> None:
         plan = [
             {"id": 1, "kind": "learn_skill", "skill_file": "local_tool_skill.md"},
             {
@@ -102,8 +102,32 @@ class GraphToolRoutingTest(unittest.TestCase):
 
         normalized = _normalize_plan(plan, "please parse uploads/report.pdf")
 
-        self.assertEqual(normalized[1]["tool_name"], "PARSE_DOCUMENT_WITH_MINERU")
+        self.assertEqual(normalized[1]["tool_name"], "PARSE_DOCUMENT_WITH_OCR_PC")
         self.assertEqual(normalized[1]["tool_input"], {"path": "uploads/report.pdf"})
+
+    def test_ocr_summary_uses_markdown_preview_when_requested(self) -> None:
+        past_steps = [
+            (
+                (
+                    "USE_TOOL",
+                    '{"tool_name": "PARSE_DOCUMENT_WITH_OCR_PC", "args": {"path": "uploads/report.pdf"}}',
+                ),
+                (
+                    '{"ok": true, "markdown_path": "ocr_outputs/report.md", '
+                    '"content_list_v2_path": "ocr_outputs/report_content_list_v2.json", '
+                    '"block_count": 3, "markdown_preview": "项目介绍：化学及生物工程。"}'
+                ),
+            )
+        ]
+
+        from unittest import mock
+
+        with mock.patch("agent_edge.graph.llm_call", return_value="文档主题：项目介绍") as llm_mock:
+            summary = _build_summary(past_steps, "请总结这个 PDF")
+
+        self.assertIn("OCR 文档解析完成", summary)
+        self.assertIn("文档主题：项目介绍", summary)
+        llm_mock.assert_called_once()
 
 
 if __name__ == "__main__":

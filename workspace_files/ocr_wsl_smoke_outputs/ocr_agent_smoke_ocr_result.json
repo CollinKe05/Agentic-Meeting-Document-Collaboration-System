@@ -1,0 +1,11 @@
+{
+  "ok": true,
+  "input_path": "/mnt/c/Users/19653/Desktop/agent/workspace_files/uploads/ocr_agent_smoke.png",
+  "output_root": "/mnt/c/Users/19653/Desktop/agent/workspace_files/ocr_wsl_smoke_outputs",
+  "markdown_path": "/mnt/c/Users/19653/Desktop/agent/workspace_files/ocr_wsl_smoke_outputs/ocr_agent_smoke.md",
+  "blocks_json_path": "/mnt/c/Users/19653/Desktop/agent/workspace_files/ocr_wsl_smoke_outputs/ocr_agent_smoke_blocks.json",
+  "content_list_v2_path": "/mnt/c/Users/19653/Desktop/agent/workspace_files/ocr_wsl_smoke_outputs/ocr_agent_smoke_content_list_v2.json",
+  "images_dir": null,
+  "block_count": 14,
+  "markdown_preview": "香港科技大學\n\n工學院\n\nTHEHONGKONG\n\nSCHOOLOF\n\nUNIVERSITYOFSCIENCE\n\nENGINEERING\n\nANDTECHNOLOGY\n\nGraduateProgramsP/MPln\n\nChemicaladBiooqialEnginern\n\n【化学「程及生物工程学】\n\nDEPARTMENTOF\n\nCCHEMICALANDBIOLOGCAL\n\nENGINEERING\n\n化學及生物工程學系\n\n"
+}

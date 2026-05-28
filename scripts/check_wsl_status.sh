@@ -42,7 +42,38 @@ fi
 
 echo "== conda agent =="
 if [ -x /root/miniforge3/bin/conda ]; then
-  /root/miniforge3/bin/conda run -n agent python -c 'import langgraph, requests; print("python deps ok")'
+  CHECK_SCRIPT="$(mktemp)"
+  cat > "$CHECK_SCRIPT" <<'PY'
+import importlib
+
+mods = [
+    "langgraph",
+    "requests",
+    "cv2",
+    "onnxruntime",
+    "fitz",
+    "fastapi",
+    "uvicorn",
+    "numpy",
+    "sounddevice",
+    "soundfile",
+    "sherpa_onnx",
+]
+missing = []
+for name in mods:
+    try:
+        importlib.import_module(name)
+    except Exception as exc:
+        missing.append(f"{name}: {type(exc).__name__}: {exc}")
+if missing:
+    print("python deps missing or broken")
+    for item in missing:
+        print(" -", item)
+    raise SystemExit(1)
+print("python deps ok")
+PY
+  /root/miniforge3/bin/conda run -n agent python "$CHECK_SCRIPT"
+  rm -f "$CHECK_SCRIPT"
 else
   echo "missing /root/miniforge3/bin/conda"
 fi

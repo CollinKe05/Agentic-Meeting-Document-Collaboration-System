@@ -19,7 +19,7 @@ class HeavyRuntimeTest(unittest.TestCase):
             log_path = Path(tmp) / "ok.log"
             result = heavy_runtime.run_exclusive_process(
                 [sys.executable, "-c", "print('done')"],
-                engine_state="MINERU_RUNNING",
+                engine_state="OCR_RUNNING",
                 cwd=None,
                 env=os.environ.copy(),
                 timeout_seconds=5,
@@ -36,7 +36,7 @@ class HeavyRuntimeTest(unittest.TestCase):
             with self.assertRaises(heavy_runtime.ManagedProcessError):
                 heavy_runtime.run_exclusive_process(
                     [sys.executable, "-c", "import time; time.sleep(10)"],
-                    engine_state="MINERU_RUNNING",
+                    engine_state="OCR_RUNNING",
                     cwd=None,
                     env=os.environ.copy(),
                     timeout_seconds=0.2,
@@ -45,13 +45,13 @@ class HeavyRuntimeTest(unittest.TestCase):
 
         self.assertEqual(heavy_runtime.get_active_engine(), "IDLE")
 
-    def test_mutual_exclusion_blocks_mineru_while_llm_active(self) -> None:
+    def test_mutual_exclusion_blocks_ocr_while_llm_active(self) -> None:
         with heavy_runtime.llm_request_guard():
             with tempfile.TemporaryDirectory() as tmp:
                 with self.assertRaises(heavy_runtime.EngineBusyError):
                     heavy_runtime.run_exclusive_process(
                         [sys.executable, "-c", "print('nope')"],
-                        engine_state="MINERU_RUNNING",
+                        engine_state="OCR_RUNNING",
                         cwd=None,
                         env=os.environ.copy(),
                         timeout_seconds=5,
@@ -60,31 +60,49 @@ class HeavyRuntimeTest(unittest.TestCase):
 
         self.assertEqual(heavy_runtime.get_active_engine(), "IDLE")
 
-    def test_mineru_wrapper_stops_and_restarts_llama(self) -> None:
+    def test_ocr_wrapper_restarts_llama_and_releases_resource(self) -> None:
         fake_result = heavy_runtime.ManagedProcessResult(
-            command=("mineru",),
+            command=("ocr",),
             returncode=0,
-            log_path=Path("mineru.log"),
+            log_path=Path("ocr.log"),
             log_tail="ok",
         )
-        with mock.patch("agent_edge.heavy_runtime.stop_llama_server") as stop_mock:
-            with mock.patch("agent_edge.heavy_runtime.ensure_llama_server_running") as start_mock:
-                with mock.patch(
-                    "agent_edge.heavy_runtime.run_exclusive_process", return_value=fake_result
-                ) as run_mock:
-                    result = heavy_runtime.run_mineru_blocking(
-                        ["mineru"],
-                        cwd=None,
-                        env=os.environ.copy(),
-                        timeout_seconds=5,
-                        log_path=Path("mineru.log"),
-                        restart_llama=True,
-                    )
+        token = heavy_runtime.create_resource_token("task1", "OCR_RUNNING")
+        with mock.patch("agent_edge.heavy_runtime.ensure_llama_server_running") as start_mock:
+            with mock.patch(
+                "agent_edge.heavy_runtime.run_interruptible_process", return_value=fake_result
+            ) as run_mock:
+                result = heavy_runtime.run_ocr_blocking(
+                    ["ocr"],
+                    cwd=None,
+                    env=os.environ.copy(),
+                    timeout_seconds=5,
+                    log_path=Path("ocr.log"),
+                    restart_llama=True,
+                    token=token,
+                    task_id="task1",
+                )
 
         self.assertEqual(result, fake_result)
-        stop_mock.assert_called_once()
         start_mock.assert_called_once()
         run_mock.assert_called_once()
+
+    def test_resource_request_stops_llama_and_sets_ocr_state(self) -> None:
+        token = heavy_runtime.create_resource_token("task2", "OCR_RUNNING")
+        with mock.patch("agent_edge.heavy_runtime.stop_llama_server") as stop_mock:
+            granted = heavy_runtime.request_runtime_resource(
+                token=token,
+                resource="OCR_RUNNING",
+                task_id="task2",
+                pid=123,
+                reason="test",
+            )
+
+        self.assertTrue(granted["granted"])
+        self.assertEqual(heavy_runtime.get_active_engine(), "OCR_RUNNING")
+        stop_mock.assert_called_once_with(force=True)
+        heavy_runtime.release_runtime_resource(token=token, task_id="task2", resource="OCR_RUNNING")
+        self.assertEqual(heavy_runtime.get_active_engine(), "IDLE")
 
 
 if __name__ == "__main__":

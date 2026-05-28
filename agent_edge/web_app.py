@@ -15,7 +15,13 @@ from urllib.parse import parse_qs, urlparse
 
 from . import task_store
 from .event_agent import features, start_task, wait_for_task
-from .heavy_runtime import cleanup_managed_processes, get_active_engine, is_llama_server_running
+from .heavy_runtime import (
+    cleanup_managed_processes,
+    get_active_engine,
+    is_llama_server_running,
+    release_runtime_resource,
+    request_runtime_resource,
+)
 from .paths import PROJECT_ROOT, SKILLS_DIR, WORKSPACE_DIR, ensure_demo_assets, read_limited_text, safe_child_path, write_limited_text
 
 
@@ -31,6 +37,7 @@ def main() -> int:
     task_store.ensure_schema()
     host = os.environ.get("AGENT_UI_HOST", "127.0.0.1")
     port = int(os.environ.get("AGENT_UI_PORT", "7860"))
+    os.environ.setdefault("AGENT_RESOURCE_CALLBACK_URL", f"http://127.0.0.1:{port}/api/runtime/resource")
     server = ThreadingHTTPServer((host, port), AgentUIHandler)
     print(f"Agent UI 已启动：http://{host}:{port}")
     try:
@@ -38,6 +45,9 @@ def main() -> int:
     except KeyboardInterrupt:
         print("正在关闭 Agent UI...")
     finally:
+        from .meeting_asr import cleanup_asr_processes
+
+        cleanup_asr_processes()
         cleanup_managed_processes()
         server.server_close()
     return 0
@@ -70,6 +80,16 @@ class AgentUIHandler(BaseHTTPRequestHandler):
                     "llama_server_running": is_llama_server_running(),
                 }
             )
+            return
+        if path == "/api/meeting/status":
+            from .meeting_asr import meeting_status
+
+            self._send_json({"ok": True, "meeting": meeting_status()})
+            return
+        if path == "/api/voice-input/status":
+            from .meeting_asr import voice_input_status
+
+            self._send_json({"ok": True, "voice_input": voice_input_status()})
             return
         if path == "/api/tasks":
             limit = int(parse_qs(parsed.query).get("limit", ["50"])[0])
@@ -111,6 +131,27 @@ class AgentUIHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/skills":
             self._handle_save_skill()
+            return
+        if path == "/api/runtime/resource/request":
+            self._handle_resource_request()
+            return
+        if path == "/api/runtime/resource/release":
+            self._handle_resource_release()
+            return
+        if path == "/api/meeting/start":
+            self._handle_meeting_start()
+            return
+        if path == "/api/meeting/stop":
+            self._handle_meeting_stop()
+            return
+        if path == "/api/meeting/summary":
+            self._handle_meeting_summary()
+            return
+        if path == "/api/voice-input/start":
+            self._handle_voice_input_start()
+            return
+        if path == "/api/voice-input/stop":
+            self._handle_voice_input_stop()
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -236,6 +277,74 @@ class AgentUIHandler(BaseHTTPRequestHandler):
         except Exception as exc:  # noqa: BLE001 - API boundary
             self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
 
+    def _handle_resource_request(self) -> None:
+        try:
+            payload = self._read_json()
+            result = request_runtime_resource(
+                token=str(payload.get("token", "")),
+                resource=str(payload.get("resource", "")),  # type: ignore[arg-type]
+                task_id=str(payload.get("task_id", "")),
+                pid=int(payload["pid"]) if payload.get("pid") is not None else None,
+                reason=str(payload.get("reason", "")),
+            )
+            self._send_json(result)
+        except Exception as exc:  # noqa: BLE001 - internal API boundary
+            self._send_json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, HTTPStatus.BAD_REQUEST)
+
+    def _handle_resource_release(self) -> None:
+        try:
+            payload = self._read_json()
+            result = release_runtime_resource(
+                token=str(payload.get("token", "")),
+                task_id=str(payload.get("task_id", "")) or None,
+                resource=str(payload.get("resource", "")) or None,  # type: ignore[arg-type]
+            )
+            self._send_json(result)
+        except Exception as exc:  # noqa: BLE001 - internal API boundary
+            self._send_json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, HTTPStatus.BAD_REQUEST)
+
+    def _handle_meeting_start(self) -> None:
+        try:
+            from .meeting_asr import start_meeting
+
+            self._send_json({"ok": True, "meeting": start_meeting()})
+        except Exception as exc:  # noqa: BLE001 - API boundary
+            self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+    def _handle_meeting_stop(self) -> None:
+        try:
+            from .meeting_asr import stop_meeting
+
+            self._send_json({"ok": True, "meeting": stop_meeting()})
+        except Exception as exc:  # noqa: BLE001 - API boundary
+            self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+    def _handle_meeting_summary(self) -> None:
+        try:
+            from .meeting_asr import meeting_summary_prompt
+
+            prompt = meeting_summary_prompt()
+            task = start_task(prompt, backend=LLAMA_CPP_BACKEND, attachments=[])
+            self._send_json({"ok": True, "task": task, "task_id": task["id"]}, HTTPStatus.ACCEPTED)
+        except Exception as exc:  # noqa: BLE001 - API boundary
+            self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+    def _handle_voice_input_start(self) -> None:
+        try:
+            from .meeting_asr import start_voice_input
+
+            self._send_json({"ok": True, "voice_input": start_voice_input()})
+        except Exception as exc:  # noqa: BLE001 - API boundary
+            self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+    def _handle_voice_input_stop(self) -> None:
+        try:
+            from .meeting_asr import stop_voice_input
+
+            self._send_json({"ok": True, "voice_input": stop_voice_input()})
+        except Exception as exc:  # noqa: BLE001 - API boundary
+            self._send_json({"ok": False, "error": str(exc)}, HTTPStatus.BAD_REQUEST)
+
     def _stream_task_events(self, task_id: str, *, after_id: int) -> None:
         task = task_store.get_task(task_id)
         if not task:
@@ -322,7 +431,7 @@ def _safe_filename(filename: str) -> str:
 def _events_to_steps(events: list[dict[str, Any]]) -> list[dict[str, str]]:
     steps: list[dict[str, str]] = []
     for event in events:
-        if event["type"] not in {"TOOL_REQUESTED", "MINERU_REQUIRED"}:
+        if event["type"] not in {"TOOL_REQUESTED", "OCR_REQUIRED"}:
             continue
         payload = event.get("payload", {})
         steps.append(

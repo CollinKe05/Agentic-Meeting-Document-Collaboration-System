@@ -9,13 +9,26 @@ MINIFORGE_DIR="${MINIFORGE_DIR:-$HOME/miniforge3}"
 cd "$PROJECT_DIR"
 mkdir -p logs
 
-echo "[1/5] Checking base system tools"
-if ! command -v curl >/dev/null 2>&1 || ! command -v zstd >/dev/null 2>&1; then
+echo "[1/5] Checking base system tools and audio runtime libraries"
+NEEDED_APT_PACKAGES=()
+if ! command -v curl >/dev/null 2>&1; then
+  NEEDED_APT_PACKAGES+=(curl)
+fi
+if ! command -v zstd >/dev/null 2>&1; then
+  NEEDED_APT_PACKAGES+=(zstd)
+fi
+if ! dpkg -s ca-certificates >/dev/null 2>&1; then
+  NEEDED_APT_PACKAGES+=(ca-certificates)
+fi
+if ! dpkg -s libportaudio2 >/dev/null 2>&1; then
+  NEEDED_APT_PACKAGES+=(libportaudio2)
+fi
+if [ "${#NEEDED_APT_PACKAGES[@]}" -gt 0 ]; then
   if command -v apt-get >/dev/null 2>&1; then
     apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y curl ca-certificates zstd
+    DEBIAN_FRONTEND=noninteractive apt-get install -y "${NEEDED_APT_PACKAGES[@]}"
   else
-    echo "Missing curl or zstd, and apt-get is unavailable."
+    echo "Missing system packages: ${NEEDED_APT_PACKAGES[*]}, and apt-get is unavailable."
     exit 1
   fi
 fi
@@ -42,6 +55,7 @@ fi
 
 echo "[4/5] Installing Python package"
 "$CONDA_BIN" run -n "$ENV_NAME" python -m pip install --upgrade pip
+"$CONDA_BIN" run -n "$ENV_NAME" python -m pip install -r requirements.txt
 "$CONDA_BIN" run -n "$ENV_NAME" python -m pip install -e .
 
 echo "[5/5] Preparing CPU-only llama.cpp and Qwen GGUF"

@@ -49,14 +49,8 @@ TEXT_FILE_EXTENSIONS = {
     ".cfg",
     ".log",
 }
-MINERU_FILE_EXTENSIONS = {
+OCR_FILE_EXTENSIONS = {
     ".pdf",
-    ".doc",
-    ".docx",
-    ".ppt",
-    ".pptx",
-    ".xls",
-    ".xlsx",
     ".png",
     ".jpg",
     ".jpeg",
@@ -72,11 +66,8 @@ TOOL_INTENT_KEYWORDS = {
     "打开",
     "上传",
     "解析",
-    "mineru",
+    "paddleocr",
     "pdf",
-    "docx",
-    "pptx",
-    "xlsx",
     "图片",
     "ocr",
     "技能",
@@ -130,7 +121,7 @@ def planner_node(state: AgentState) -> Dict[str, Any]:
 - 内部可以比较多条路径，但最终只能输出一个线性 JSON list。
 - 至少包含一个 learn_skill 步骤和一个 use_tool 步骤。
 - 如果用户没有指定文件，默认读取 demo_input.txt。
-- 如果用户要求解析 PDF、图片、DOCX、PPTX 或 XLSX，优先学习 local_tool_skill.md，并调用 PARSE_DOCUMENT_WITH_MINERU。
+- 如果用户要求解析 PDF 或图片，优先学习 local_tool_skill.md，并调用 PARSE_DOCUMENT_WITH_OCR_PC。
 """
 
     raw = llm_call(prompt)
@@ -166,7 +157,7 @@ def executor_node(state: AgentState) -> Dict[str, Any]:
     attempts = int(current_task.get("attempts", 0))
 
     if current_task.get("last_observation"):
-        return _finish_observed_task(plan, past_steps, current_task)
+        return _finish_observed_task(plan, past_steps, current_task, state["user_input"])
 
     if attempts >= MAX_ATTEMPTS_PER_STEP:
         current_task["status"] = "failed"
@@ -409,8 +400,13 @@ def _repair_file_tool_route(task: dict[str, Any], user_input: str) -> None:
         task["tool_input"] = {"path": path}
         return
 
-    if suffix in MINERU_FILE_EXTENSIONS and tool_name in {"SAFE_READ_TEXT_FILE", "COUNT_TEXT_CHARS"}:
-        task["tool_name"] = "PARSE_DOCUMENT_WITH_MINERU"
+    if suffix in OCR_FILE_EXTENSIONS and tool_name in {
+        "SAFE_READ_TEXT_FILE",
+        "COUNT_TEXT_CHARS",
+        "PARSE_DOCUMENT_WITH_OCR_PC",
+        "OCR_PC_PARSE_DOCUMENT",
+    }:
+        task["tool_name"] = "PARSE_DOCUMENT_WITH_OCR_PC"
         task["tool_input"] = {"path": path}
 
 
@@ -424,7 +420,7 @@ def _extract_workspace_file_path(tool_input: dict[str, Any], user_input: str) ->
     if attachment_refs:
         return attachment_refs[0][1]
 
-    extensions = sorted(TEXT_FILE_EXTENSIONS | MINERU_FILE_EXTENSIONS, key=len, reverse=True)
+    extensions = sorted(TEXT_FILE_EXTENSIONS | OCR_FILE_EXTENSIONS, key=len, reverse=True)
     pattern = r"([A-Za-z0-9_.\-/]+(?:%s))" % "|".join(re.escape(ext) for ext in extensions)
     match = re.search(pattern, user_input, flags=re.IGNORECASE)
     return match.group(1).strip("，。；;:,<>\"'") if match else ""
@@ -455,7 +451,7 @@ def _attachment_file_refs(user_input: str) -> list[tuple[str, str]]:
     if not match:
         return refs
 
-    extensions = sorted(TEXT_FILE_EXTENSIONS | MINERU_FILE_EXTENSIONS, key=len, reverse=True)
+    extensions = sorted(TEXT_FILE_EXTENSIONS | OCR_FILE_EXTENSIONS, key=len, reverse=True)
     ext_pattern = "|".join(re.escape(ext) for ext in extensions)
     line_pattern = re.compile(
         r"-\s*(?P<name>[^:\n]+?)\s*:\s*(?P<path>[A-Za-z0-9_.\-/]+(?:%s))" % ext_pattern,
@@ -467,7 +463,7 @@ def _attachment_file_refs(user_input: str) -> list[tuple[str, str]]:
 
 
 def _finish_observed_task(
-    plan: list[dict[str, Any]], past_steps: list[tuple], current_task: dict[str, Any]
+    plan: list[dict[str, Any]], past_steps: list[tuple], current_task: dict[str, Any], user_input: str
 ) -> Dict[str, Any]:
     last_observation = str(current_task.get("last_observation", ""))
     result = f"当前步骤完成。Observation 摘要：{last_observation[:300]}"
@@ -476,7 +472,7 @@ def _finish_observed_task(
     past_steps.append((("FINISH", f"step={current_task.get('id')}"), result))
 
     route = "next_task" if plan else "end"
-    response = _build_summary(past_steps, "") if route == "end" else f"步骤 {current_task.get('id')} 完成：{result}"
+    response = _build_summary(past_steps, user_input) if route == "end" else f"步骤 {current_task.get('id')} 完成：{result}"
     return {
         "plan": plan,
         "past_steps": past_steps,
@@ -551,10 +547,16 @@ def _extract_final_answer(past_steps: list[tuple], user_input: str = "") -> list
                 answers.append(f"已读取 {path}，内容为：{content}")
         elif tool_name == "COUNT_TEXT_CHARS" and "chars" in payload:
             answers.append(f"字符统计结果：{payload['chars']} 个字符。")
-        elif tool_name in {"PARSE_DOCUMENT_WITH_MINERU", "MINERU_PARSE_DOCUMENT"}:
+        elif tool_name in {"PARSE_DOCUMENT_WITH_OCR_PC", "OCR_PC_PARSE_DOCUMENT"}:
             md_path = payload.get("markdown_path") or "未生成 Markdown"
             content_path = payload.get("content_list_v2_path") or "未生成 content_list_v2"
-            answers.append(f"文档解析完成。Markdown：{md_path}；结构化结果：{content_path}")
+            block_count = payload.get("block_count", 0)
+            preview = str(payload.get("markdown_preview") or "")
+            header = f"OCR 文档解析完成。Markdown：{md_path}；结构化结果：{content_path}；文本块数量：{block_count}"
+            if _wants_content_summary(user_input) and preview.strip():
+                answers.append(header + "\n\n" + _summarize_ocr_markdown(markdown_preview=preview, user_input=user_input))
+            else:
+                answers.append(header)
 
     return answers
 
@@ -597,6 +599,26 @@ def _summarize_read_content(*, path: str, content: str, user_input: str) -> str:
 {content[:12000]}
 
 请用中文输出最终结果。不要输出工具调用过程，不要输出 Action/Observation。
+""".strip()
+    return llm_call(prompt).strip()
+
+
+def _summarize_ocr_markdown(*, markdown_preview: str, user_input: str) -> str:
+    prompt = f"""
+你是离线边缘端 Agent 的 OCR 文档总结器。下面是 OCR/PaddleOCR 从文档里提取出的 Markdown 预览内容。
+请基于这些内容回答用户请求，输出：
+1. 文档主题
+2. 关键事实
+3. 重要结论或可继续追问的问题
+
+如果 OCR 文本存在缺字、粘连或明显识别错误，请直接说明“存在 OCR 噪声”，并尽量根据可读部分总结，不要编造没有出现的信息。
+
+用户请求：{user_input}
+
+OCR Markdown 预览：
+{markdown_preview[:12000]}
+
+请只输出最终结果，不要输出工具调用过程。
 """.strip()
     return llm_call(prompt).strip()
 

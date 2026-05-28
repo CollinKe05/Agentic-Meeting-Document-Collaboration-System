@@ -30,12 +30,12 @@ class LocalActionsTest(unittest.TestCase):
         self.assertTrue(payload["ok"])
         self.assertIn("离线演示文件", payload["content"])
 
-    def test_mineru_tool_delegates_to_blocking_parser(self) -> None:
-        with mock.patch("agent_edge.local_actions.parse_document_with_mineru") as parse_mock:
+    def test_ocr_tool_delegates_to_blocking_parser(self) -> None:
+        with mock.patch("agent_edge.local_actions.parse_document_with_ocr_pc") as parse_mock:
             parse_mock.return_value = {"ok": True, "markdown_path": "workspace_files/out/demo.md"}
             observation = execute_local_action(
                 "USE_TOOL",
-                '{"tool_name": "PARSE_DOCUMENT_WITH_MINERU", "args": {"path": "demo.pdf"}}',
+                '{"tool_name": "PARSE_DOCUMENT_WITH_OCR_PC", "args": {"path": "demo.pdf"}}',
             )
         payload = json.loads(observation)
         self.assertTrue(payload["ok"])
