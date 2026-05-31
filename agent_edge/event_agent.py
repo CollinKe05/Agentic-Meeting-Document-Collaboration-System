@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -24,6 +25,9 @@ EVENT_TASK_DONE = "TASK_DONE"
 EVENT_ERROR = "ERROR"
 
 MAX_PROMPT_CHARS = int(os.environ.get("AGENT_MAX_PROMPT_CHARS", "24000"))
+CONVERSATION_CONTEXT_TURNS = int(os.environ.get("AGENT_CONVERSATION_CONTEXT_TURNS", "6"))
+CONVERSATION_CONTEXT_CHARS = int(os.environ.get("AGENT_CONVERSATION_CONTEXT_CHARS", "8000"))
+CONVERSATION_TURN_CHARS = int(os.environ.get("AGENT_CONVERSATION_TURN_CHARS", "1400"))
 DEFAULT_EVENT_WAIT_SECONDS = 0.25
 
 _agent_lock = threading.Lock()
@@ -38,6 +42,7 @@ class SharedState:
     prompt: str
     backend: str
     attachments: list[dict[str, Any]] = field(default_factory=list)
+    conversation_context: str = ""
     plan: list[dict[str, Any]] = field(default_factory=list)
     past_steps: list[tuple[Any, Any]] = field(default_factory=list)
     current_response: str = ""
@@ -169,6 +174,54 @@ def chunk_text(text: str, *, max_chars: int = 6000) -> list[str]:
     return [chunk for chunk in chunks if chunk]
 
 
+def build_conversation_context(*, exclude_task_id: str = "") -> str:
+    """Build a small recent chat window from completed persisted tasks."""
+    if CONVERSATION_CONTEXT_TURNS <= 0 or CONVERSATION_CONTEXT_CHARS <= 0:
+        return ""
+
+    recent_tasks = task_store.list_tasks(limit=max(CONVERSATION_CONTEXT_TURNS * 3, 12))
+    turns: list[str] = []
+    budget = CONVERSATION_CONTEXT_CHARS
+
+    for task in recent_tasks:
+        if task.get("id") == exclude_task_id:
+            continue
+        if task.get("status") != "completed":
+            continue
+        result = str(task.get("result") or "").strip()
+        if not result:
+            continue
+
+        prompt = _strip_attachment_block(str(task.get("prompt") or "").strip())
+        turn = (
+            f"User: {_clip_for_context(prompt, CONVERSATION_TURN_CHARS)}\n"
+            f"Assistant: {_clip_for_context(result, CONVERSATION_TURN_CHARS)}"
+        )
+        if len(turn) > budget and turns:
+            break
+        if len(turn) > budget:
+            turn = turn[-budget:]
+        turns.append(turn)
+        budget -= len(turn)
+        if len(turns) >= CONVERSATION_CONTEXT_TURNS or budget <= 0:
+            break
+
+    if not turns:
+        return ""
+    return "\n\n".join(reversed(turns))
+
+
+def _strip_attachment_block(text: str) -> str:
+    return re.sub(r"<attachments>.*?</attachments>", "[attachments omitted]", text, flags=re.IGNORECASE | re.DOTALL).strip()
+
+
+def _clip_for_context(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    keep = max(0, max_chars - 40)
+    return text[: keep // 2] + "\n...[已截断]...\n" + text[-(keep - keep // 2) :]
+
+
 def _run_task_thread(task_id: str) -> None:
     try:
         with _agent_lock:
@@ -193,7 +246,16 @@ def _run_task(task_id: str) -> None:
 
     try:
         task_store.update_task(task_id, status="running")
+        state.conversation_context = build_conversation_context(exclude_task_id=task_id)
         _event(state, EVENT_USER_MESSAGE, "接收任务", state.prompt[:1200], {"attachments": state.attachments})
+        if state.conversation_context:
+            _event(
+                state,
+                "CONTEXT_LOADED",
+                "加载聊天上下文",
+                state.conversation_context[:1200],
+                {"chars": len(state.conversation_context)},
+            )
         _event(state, EVENT_PLAN_REQUESTED, "Planner 开始规划", "读取 Skill 索引，生成可执行步骤。")
         _event(
             state,
@@ -223,7 +285,11 @@ def _run_task(task_id: str) -> None:
 def _run_graph(state: SharedState) -> dict[str, Any]:
     from .graph import run_agent, user_visible_response
 
-    graph_state = run_agent(compact_text_for_llm(state.prompt))
+    graph_state = run_agent(
+        compact_text_for_llm(state.prompt),
+        task_id=state.task_id,
+        conversation_context=state.conversation_context,
+    )
     graph_state["current_response"] = user_visible_response(graph_state)
     return dict(graph_state)
 

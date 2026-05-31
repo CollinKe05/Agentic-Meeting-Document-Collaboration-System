@@ -220,6 +220,18 @@ def get_artifact(artifact_id: str) -> dict[str, Any] | None:
     return _artifact_from_row(row) if row else None
 
 
+def latest_artifact(*, kind: str | None = None) -> dict[str, Any] | None:
+    query = "SELECT * FROM artifacts"
+    values: list[Any] = []
+    if kind:
+        query += " WHERE kind = ?"
+        values.append(kind)
+    query += " ORDER BY created_at DESC, id DESC LIMIT 1"
+    with _lock, connect() as conn:
+        row = conn.execute(query, values).fetchone()
+    return _artifact_from_row(row) if row else None
+
+
 def _task_from_row(row: sqlite3.Row) -> dict[str, Any]:
     item = dict(row)
     item["attachments"] = _json_loads(item.pop("attachments_json"), [])

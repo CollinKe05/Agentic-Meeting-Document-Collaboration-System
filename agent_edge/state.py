@@ -17,6 +17,8 @@ class AgentState(TypedDict):
     """
 
     user_input: str
+    task_id: str
+    conversation_context: str
     plan: List[dict]
     past_steps: List[tuple]
     current_response: str

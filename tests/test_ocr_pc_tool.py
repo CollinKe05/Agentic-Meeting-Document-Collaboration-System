@@ -21,6 +21,8 @@ class OcrPcToolTest(unittest.TestCase):
             def fake_run(*args, **kwargs):
                 self.assertEqual(args[0][0], "custom-python")
                 output_root = workspace / "ocr_outputs"
+                output_root.mkdir(exist_ok=True)
+                (output_root / "demo.md").write_text("完整 OCR 原文", encoding="utf-8")
                 result_path = output_root / "demo_ocr_result.json"
                 result_path.write_text(
                     json.dumps(
@@ -46,6 +48,8 @@ class OcrPcToolTest(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertEqual(result["backend"], "ocr_pc")
         self.assertEqual(result["markdown_preview"], "hello")
+        self.assertEqual(result["ocr_text"], "完整 OCR 原文")
+        self.assertEqual(result["ocr_text_path"], str(Path(result["markdown_path"])))
         run_mock.assert_called_once()
 
     def test_rejects_unsupported_suffix(self) -> None:

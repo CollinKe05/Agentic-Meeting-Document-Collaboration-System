@@ -36,10 +36,21 @@ class LocalActionsTest(unittest.TestCase):
             observation = execute_local_action(
                 "USE_TOOL",
                 '{"tool_name": "PARSE_DOCUMENT_WITH_OCR_PC", "args": {"path": "demo.pdf"}}',
+                task_id="task123",
             )
         payload = json.loads(observation)
         self.assertTrue(payload["ok"])
-        parse_mock.assert_called_once_with({"path": "demo.pdf"})
+        parse_mock.assert_called_once_with({"path": "demo.pdf", "task_id": "task123"})
+
+    def test_read_last_ocr_result_tool(self) -> None:
+        with mock.patch("agent_edge.local_actions.read_latest_ocr_result", return_value={"ok": True, "content": "OCR内容"}) as read_mock:
+            observation = execute_local_action(
+                "USE_TOOL",
+                '{"tool_name": "READ_LAST_OCR_RESULT", "args": {}}',
+            )
+
+        self.assertEqual(json.loads(observation), {"ok": True, "content": "OCR内容"})
+        read_mock.assert_called_once_with({})
 
 
 if __name__ == "__main__":

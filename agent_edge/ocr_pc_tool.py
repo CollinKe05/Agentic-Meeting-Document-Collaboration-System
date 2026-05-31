@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .heavy_runtime import ManagedProcessError, create_resource_token, run_ocr_blocking
+from .ocr_memory import record_ocr_result
 from .paths import PROJECT_ROOT, WORKSPACE_DIR, safe_child_path
 
 
@@ -22,6 +23,7 @@ SUPPORTED_OCR_SUFFIXES = {
     ".tiff",
     ".webp",
 }
+DEFAULT_OCR_RESPONSE_TEXT_CHARS = 12000
 
 
 def parse_document_with_ocr_pc(args: dict[str, Any]) -> dict[str, Any]:
@@ -106,6 +108,8 @@ def parse_document_with_ocr_pc(args: dict[str, Any]) -> dict[str, Any]:
             "log_path": str(result.log_path),
         }
     )
+    _attach_markdown_text(payload)
+    record_ocr_result(task_id=task_id, payload=payload, source_path=rel_path)
     return payload
 
 
@@ -134,3 +138,15 @@ def _read_result_payload(path: Path) -> dict[str, Any]:
     except json.JSONDecodeError as exc:
         return {"ok": False, "error": f"OCR result JSON parse failed: {exc}"}
     return payload if isinstance(payload, dict) else {"ok": False, "error": "OCR result is not an object"}
+
+
+def _attach_markdown_text(payload: dict[str, Any]) -> None:
+    markdown_path = Path(str(payload.get("markdown_path") or ""))
+    if not markdown_path.exists() or not markdown_path.is_file():
+        return
+    text = markdown_path.read_text(encoding="utf-8", errors="replace")
+    max_chars = int(os.environ.get("OCR_PC_RESPONSE_TEXT_CHARS", str(DEFAULT_OCR_RESPONSE_TEXT_CHARS)))
+    payload["ocr_text_path"] = str(markdown_path)
+    payload["ocr_text_chars"] = len(text)
+    payload["ocr_text_truncated"] = len(text) > max_chars
+    payload["ocr_text"] = text[:max_chars]

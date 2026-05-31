@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .ocr_memory import read_latest_ocr_result
 from .ocr_pc_tool import parse_document_with_ocr_pc
 from .paths import (
     SKILLS_DIR,
@@ -17,7 +18,7 @@ def json_observation(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-def execute_local_action(action: str, action_input: str) -> str:
+def execute_local_action(action: str, action_input: str, *, task_id: str | None = None) -> str:
     normalized_action = action.strip().upper()
 
     try:
@@ -35,7 +36,7 @@ def execute_local_action(action: str, action_input: str) -> str:
             if not isinstance(args, dict):
                 return json_observation({"ok": False, "error": "args 必须是 JSON object"})
 
-            return _execute_local_tool(tool_name, args)
+            return _execute_local_tool(tool_name, args, task_id=task_id)
 
         return json_observation({"ok": False, "error": f"未知 Action：{action}"})
 
@@ -45,7 +46,7 @@ def execute_local_action(action: str, action_input: str) -> str:
         return json_observation({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
 
 
-def _execute_local_tool(tool_name: str, args: dict[str, Any]) -> str:
+def _execute_local_tool(tool_name: str, args: dict[str, Any], *, task_id: str | None = None) -> str:
     if tool_name == "LOCAL_ECHO":
         return json_observation({"ok": True, "echo": str(args.get("text", ""))})
 
@@ -56,6 +57,9 @@ def _execute_local_tool(tool_name: str, args: dict[str, Any]) -> str:
     if tool_name == "LIST_SKILLS":
         skills = sorted(path.name for path in SKILLS_DIR.glob("*.md") if path.is_file())
         return json_observation({"ok": True, "skills": skills})
+
+    if tool_name == "READ_LAST_OCR_RESULT":
+        return json_observation(read_latest_ocr_result(args))
 
     if tool_name == "SAFE_READ_TEXT_FILE":
         rel_path = str(args.get("path", ""))
@@ -77,6 +81,8 @@ def _execute_local_tool(tool_name: str, args: dict[str, Any]) -> str:
         return json_observation({"ok": True, "path": rel_path, "bytes": len(text.encode("utf-8"))})
 
     if tool_name in {"PARSE_DOCUMENT_WITH_OCR_PC", "OCR_PC_PARSE_DOCUMENT"}:
+        if task_id and not args.get("task_id"):
+            args = {**args, "task_id": task_id}
         return json_observation(parse_document_with_ocr_pc(args))
 
     return json_observation({"ok": False, "error": f"未知本地工具：{tool_name}"})

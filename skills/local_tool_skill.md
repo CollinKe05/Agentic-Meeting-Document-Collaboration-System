@@ -8,12 +8,14 @@
 - `SAFE_READ_TEXT_FILE`：读取 `workspace_files/` 下的文本文件。
 - `SAFE_WRITE_TEXT_FILE`：写入 `workspace_files/` 下的文本文件。
 - `PARSE_DOCUMENT_WITH_OCR_PC`：使用 OCR/PaddleOCR 解析 PDF 或图片。
+- `READ_LAST_OCR_RESULT`：读取最近一次 OCR 解析生成的 Markdown，用于追问和继续总结。
 
 推荐技能文件：
 
 - 读取文本文件前，学习 `read_file_skill.md`。
 - 解析 PDF、图片、扫描件前，学习 `ocr_document_skill.md`。
 - 处理会议记录、语音输入、会议总结前，学习 `asr_meeting_skill.md`。
+- 用户说“上一次 OCR 结果”“刚才那个文档”“根据这个 PDF 回答”等追问时，使用 `READ_LAST_OCR_RESULT`。
 
 通用约束：
 

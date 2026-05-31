@@ -49,3 +49,4 @@ Action Input:
 - “识别图片里的文字”：调用 `PARSE_DOCUMENT_WITH_OCR_PC`。
 - “把扫描件转 Markdown”：调用 `PARSE_DOCUMENT_WITH_OCR_PC`。
 - “总结 OCR 结果”：先调用 OCR，再基于 `markdown_preview` 或 `markdown_path` 总结。
+- “根据上一次 OCR 结果回答”：调用 `READ_LAST_OCR_RESULT` 读取最近 OCR Markdown，再基于内容回答。

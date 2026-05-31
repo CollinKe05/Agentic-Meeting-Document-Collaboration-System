@@ -51,6 +51,13 @@ class TaskStoreTest(unittest.TestCase):
         self.assertEqual(artifact["path"], "uploads/a.txt")
         self.assertEqual(artifact["metadata"]["bytes"], 3)
 
+    def test_latest_artifact_by_kind(self) -> None:
+        task_store.record_artifact("upload-1", task_id=None, kind="upload", path="uploads/a.txt", name="a.txt")
+        latest_ocr = task_store.record_artifact("ocr-1", task_id="task-1", kind="ocr_result", path="ocr_outputs/a.md", name="a.md")
+
+        self.assertEqual(task_store.latest_artifact(kind="ocr_result"), latest_ocr)
+        self.assertEqual(task_store.latest_artifact(kind="upload")["id"], "upload-1")
+
 
 if __name__ == "__main__":
     unittest.main()

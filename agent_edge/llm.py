@@ -25,6 +25,7 @@ def llm_call(prompt: str) -> str:
 def llama_cpp_chat(prompt: str) -> str:
     ensure_llama_server_running()
     timeout = float(os.environ.get("LLAMA_CPP_TIMEOUT_SECONDS", "180"))
+    max_tokens = int(os.environ.get("LLAMA_CPP_MAX_TOKENS", "768"))
     base_url = get_llama_cpp_base_url()
 
     with llm_request_guard():
@@ -36,6 +37,7 @@ def llama_cpp_chat(prompt: str) -> str:
                 "stream": False,
                 "temperature": 0,
                 "top_p": 0.9,
+                "max_tokens": max_tokens,
             },
             timeout=timeout,
         )

@@ -36,6 +36,18 @@ class EventAgentTest(unittest.TestCase):
         self.assertGreater(len(chunks), 1)
         self.assertTrue(all(chunk for chunk in chunks))
 
+    def test_build_conversation_context_uses_completed_tasks(self) -> None:
+        task_store.create_task("old-1", prompt="你好", backend="llama_cpp", attachments=[])
+        task_store.update_task("old-1", status="completed", result="你好，我在。")
+        task_store.create_task("current", prompt="继续", backend="llama_cpp", attachments=[])
+        task_store.update_task("current", status="running")
+
+        context = event_agent.build_conversation_context(exclude_task_id="current")
+
+        self.assertIn("User: 你好", context)
+        self.assertIn("Assistant: 你好，我在。", context)
+        self.assertNotIn("继续", context)
+
     def test_task_emits_lifecycle_events(self) -> None:
         fake_state = {
             "plan": [],
