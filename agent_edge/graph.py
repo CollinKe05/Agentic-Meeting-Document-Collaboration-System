@@ -376,6 +376,8 @@ def _normalize_plan(plan: list[dict[str, Any]], user_input: str) -> list[dict[st
 
         normalized.append(task)
 
+    normalized = _force_ocr_tool_step_if_needed(normalized, user_input)
+
     if (
         len(normalized) < 2
         or not any(task.get("kind") == "learn_skill" for task in normalized)
@@ -383,6 +385,54 @@ def _normalize_plan(plan: list[dict[str, Any]], user_input: str) -> list[dict[st
     ):
         return fallback_plan(user_input)
 
+    return normalized
+
+
+def _force_ocr_tool_step_if_needed(plan: list[dict[str, Any]], user_input: str) -> list[dict[str, Any]]:
+    path = _resolve_attachment_path(_extract_workspace_file_path({}, user_input), user_input)
+    if not path:
+        return plan
+
+    suffix = Path(path).suffix.lower()
+    lowered = user_input.lower()
+    if suffix not in OCR_FILE_EXTENSIONS and "parse_document_with_ocr_pc" not in lowered:
+        return plan
+
+    normalized = list(plan)
+    has_ocr_tool = any(
+        task.get("kind") == "use_tool"
+        and str(task.get("tool_name", "")).strip().upper() in {"PARSE_DOCUMENT_WITH_OCR_PC", "OCR_PC_PARSE_DOCUMENT"}
+        for task in normalized
+    )
+    if has_ocr_tool:
+        return normalized
+
+    if not any(task.get("kind") == "learn_skill" for task in normalized):
+        normalized.insert(
+            0,
+            {
+                "id": 1,
+                "kind": "learn_skill",
+                "objective": "学习 OCR/PaddleOCR 文档解析技能。",
+                "skill_file": "ocr_document_skill.md",
+                "status": "todo",
+                "attempts": 0,
+            },
+        )
+
+    normalized.append(
+        {
+            "id": len(normalized) + 1,
+            "kind": "use_tool",
+            "objective": "调用 OCR/PaddleOCR 解析文档。",
+            "tool_name": "PARSE_DOCUMENT_WITH_OCR_PC",
+            "tool_input": {"path": path},
+            "status": "todo",
+            "attempts": 0,
+        }
+    )
+    for index, task in enumerate(normalized, start=1):
+        task["id"] = index
     return normalized
 
 

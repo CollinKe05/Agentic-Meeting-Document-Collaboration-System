@@ -21,6 +21,8 @@ ASR_RUNTIME_DIR = PROJECT_ROOT / ".runtime" / "asr"
 _lock = threading.RLock()
 _meeting_session: "AsrSession | None" = None
 _voice_session: "AsrSession | None" = None
+_last_meeting_transcript_path: Path | None = None
+_last_meeting_transcript = ""
 
 
 @dataclass
@@ -36,27 +38,50 @@ class AsrSession:
 
 
 def start_meeting() -> dict[str, Any]:
-    global _meeting_session
+    global _last_meeting_transcript, _last_meeting_transcript_path, _meeting_session
     with _lock:
         if _is_live(_voice_session):
             raise RuntimeError("短语音输入正在使用麦克风，请先停止语音输入。")
         if _is_live(_meeting_session):
             return meeting_status()
+        _last_meeting_transcript_path = None
+        _last_meeting_transcript = ""
         _meeting_session = _start_asr_session("meeting")
         return meeting_status()
 
 
 def stop_meeting() -> dict[str, Any]:
-    global _meeting_session
+    global _last_meeting_transcript, _last_meeting_transcript_path, _meeting_session
     with _lock:
         session = _meeting_session
         _meeting_session = None
-    return _stop_session(session, kind="meeting")
+        cached_path = _last_meeting_transcript_path
+        cached_transcript = _last_meeting_transcript
+
+    result = _stop_session(session, kind="meeting")
+    transcript = str(result.get("transcript") or "")
+    if transcript:
+        with _lock:
+            raw_path = result.get("transcript_path")
+            _last_meeting_transcript_path = Path(str(raw_path)) if raw_path else None
+            _last_meeting_transcript = transcript
+    elif session is None and cached_transcript:
+        result["transcript_path"] = str(cached_path) if cached_path else None
+        result["transcript"] = cached_transcript
+    return result
 
 
 def meeting_status() -> dict[str, Any]:
     with _lock:
         session = _meeting_session
+        if session is None and _last_meeting_transcript:
+            return {
+                "status": "waiting",
+                "running": False,
+                "backend": _resolve_asr_backend(),
+                "transcript_path": str(_last_meeting_transcript_path) if _last_meeting_transcript_path else None,
+                "transcript": _last_meeting_transcript,
+            }
         return _status_for_session(session, idle_label="waiting", kind="meeting")
 
 

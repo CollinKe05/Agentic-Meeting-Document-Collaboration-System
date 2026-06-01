@@ -142,8 +142,9 @@ def ensure_llama_server_running() -> None:
             "--port",
             str(port),
         ]
-        if _env_flag("LLAMA_CPP_FLASH_ATTN", default=False):
-            cmd.append("--flash-attn")
+        flash_attn_mode = _llama_flash_attn_mode()
+        if flash_attn_mode:
+            cmd.extend(["--flash-attn", flash_attn_mode])
 
         log_path = RUNTIME_DIR / "logs" / "llama-server.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -536,6 +537,21 @@ def _env_flag(name: str, *, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _llama_flash_attn_mode() -> str | None:
+    value = os.environ.get("LLAMA_CPP_FLASH_ATTN")
+    if value is None or not value.strip():
+        return None
+
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return "on"
+    if normalized in {"0", "false", "no", "off"}:
+        return "off"
+    if normalized == "auto":
+        return "auto"
+    raise ValueError("LLAMA_CPP_FLASH_ATTN must be one of: 1/0, true/false, on/off, auto")
 
 
 atexit.register(cleanup_managed_processes)

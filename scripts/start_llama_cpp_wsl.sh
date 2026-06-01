@@ -12,6 +12,25 @@ LLAMA_CPP_FLASH_ATTN="${LLAMA_CPP_FLASH_ATTN:-1}"
 LLAMA_CPP_HOST="${LLAMA_CPP_HOST:-127.0.0.1}"
 LLAMA_CPP_PORT="${LLAMA_CPP_PORT:-8080}"
 
+case "${LLAMA_CPP_FLASH_ATTN,,}" in
+  1|true|yes|on)
+    FLASH_ATTN_ARGS=(--flash-attn on)
+    ;;
+  0|false|no|off)
+    FLASH_ATTN_ARGS=(--flash-attn off)
+    ;;
+  auto)
+    FLASH_ATTN_ARGS=(--flash-attn auto)
+    ;;
+  "")
+    FLASH_ATTN_ARGS=()
+    ;;
+  *)
+    echo "Invalid LLAMA_CPP_FLASH_ATTN=$LLAMA_CPP_FLASH_ATTN. Use 1/0, on/off, or auto." >&2
+    exit 1
+    ;;
+esac
+
 cd "$PROJECT_DIR"
 
 exec "$LLAMA_CPP_BIN" \
@@ -21,4 +40,4 @@ exec "$LLAMA_CPP_BIN" \
   -t "$LLAMA_CPP_THREADS" \
   --host "$LLAMA_CPP_HOST" \
   --port "$LLAMA_CPP_PORT" \
-  $([ "$LLAMA_CPP_FLASH_ATTN" = "1" ] && printf '%s' '--flash-attn')
+  "${FLASH_ATTN_ARGS[@]}"
