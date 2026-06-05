@@ -18,9 +18,12 @@ from .event_agent import features, start_task, wait_for_task
 from .heavy_runtime import (
     cleanup_managed_processes,
     get_active_engine,
+    get_current_llama_cpp_model,
     is_llama_server_running,
+    list_llama_cpp_models,
     release_runtime_resource,
     request_runtime_resource,
+    select_llama_cpp_model,
 )
 from .paths import PROJECT_ROOT, SKILLS_DIR, WORKSPACE_DIR, ensure_demo_assets, read_limited_text, safe_child_path, write_limited_text
 
@@ -78,8 +81,12 @@ class AgentUIHandler(BaseHTTPRequestHandler):
                     "ok": True,
                     "active_engine": get_active_engine(),
                     "llama_server_running": is_llama_server_running(),
+                    "current_model": get_current_llama_cpp_model(),
                 }
             )
+            return
+        if path == "/api/models":
+            self._send_json({"ok": True, "models": list_llama_cpp_models(), "current_model": get_current_llama_cpp_model()})
             return
         if path == "/api/meeting/status":
             from .meeting_asr import meeting_status
@@ -137,6 +144,9 @@ class AgentUIHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/runtime/resource/release":
             self._handle_resource_release()
+            return
+        if path == "/api/models/select":
+            self._handle_select_model()
             return
         if path == "/api/meeting/start":
             self._handle_meeting_start()
@@ -301,6 +311,14 @@ class AgentUIHandler(BaseHTTPRequestHandler):
             )
             self._send_json(result)
         except Exception as exc:  # noqa: BLE001 - internal API boundary
+            self._send_json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, HTTPStatus.BAD_REQUEST)
+
+    def _handle_select_model(self) -> None:
+        try:
+            payload = self._read_json()
+            model = select_llama_cpp_model(str(payload.get("model_id", "")))
+            self._send_json({"ok": True, "model": model, "models": list_llama_cpp_models()})
+        except Exception as exc:  # noqa: BLE001 - API boundary
             self._send_json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, HTTPStatus.BAD_REQUEST)
 
     def _handle_meeting_start(self) -> None:

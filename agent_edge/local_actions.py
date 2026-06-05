@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from .meeting_formatter import format_meeting_minutes
 from .ocr_memory import read_latest_ocr_result
 from .ocr_pc_tool import parse_document_with_ocr_pc
 from .paths import (
@@ -79,6 +80,11 @@ def _execute_local_tool(tool_name: str, args: dict[str, Any], *, task_id: str | 
         file_path = safe_child_path(WORKSPACE_DIR, rel_path)
         write_limited_text(file_path, text, overwrite=overwrite)
         return json_observation({"ok": True, "path": rel_path, "bytes": len(text.encode("utf-8"))})
+
+    if tool_name == "FORMAT_MEETING_MINUTES":
+        if task_id and not args.get("task_id"):
+            args = {**args, "task_id": task_id}
+        return json_observation(format_meeting_minutes(args))
 
     if tool_name in {"PARSE_DOCUMENT_WITH_OCR_PC", "OCR_PC_PARSE_DOCUMENT"}:
         if task_id and not args.get("task_id"):

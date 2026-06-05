@@ -140,6 +140,13 @@ def features() -> list[dict[str, Any]]:
             "action": "meeting-summary",
             "prompt": "请总结当前会议记录，输出会议纪要、关键结论和待办事项。",
         },
+        {
+            "id": "meeting-minutes-export",
+            "title": "会议纪要导出",
+            "description": "把会议转写排版为 Markdown、Typst 和 PDF 文件。",
+            "needsFile": True,
+            "prompt": "请将会议转写文件 {path} 格式化排版成会议纪要，使用 Typst 模板并导出 PDF。",
+        },
     ]
 
 

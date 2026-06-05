@@ -11,8 +11,12 @@
   const meetingToggleButton = document.getElementById('meeting-toggle-btn');
   const meetingStatusText = document.getElementById('meeting-status-text');
   const meetingStatusDot = document.getElementById('meeting-status-dot');
+  const meetingControl = document.getElementById('meeting-control');
+  const meetingControlDetails = document.getElementById('meeting-control-details');
+  const meetingCollapseButton = document.getElementById('meeting-collapse-btn');
   const resourceStatusText = document.getElementById('resource-status-text');
   const resourceStatusDot = document.getElementById('resource-status-dot');
+  const modelSelect = document.getElementById('model-select');
   const skillEditor = document.querySelector('textarea[placeholder^="在此定义Agent技能"]');
   const skillSaveButton = document.getElementById('save-skill-button') || document.querySelector('button[onclick*="已保存技能配置"]');
   const featuresPanel = document.querySelector('main > aside:last-child .p-3.overflow-y-auto');
@@ -24,6 +28,8 @@
   let currentTaskDoneShown = false;
   let meetingRunning = false;
   let voiceInputRunning = false;
+  let meetingCollapsed = localStorage.getItem('agentMeetingCollapsed') === '1';
+  let switchingModel = false;
 
   function escapeHtml(value) {
     return String(value)
@@ -169,6 +175,62 @@
       throw new Error(payload.error || `请求失败：${response.status}`);
     }
     return payload;
+  }
+
+  function formatModelLabel(model) {
+    const size = Number(model && model.size_bytes || 0);
+    const gb = size > 0 ? ` ${(size / 1024 / 1024 / 1024).toFixed(1)}G` : '';
+    return `${model && model.name ? model.name : 'unknown'}${gb}`;
+  }
+
+  async function loadModels() {
+    if (!modelSelect) return;
+    try {
+      const response = await fetch('/api/models');
+      const payload = await response.json();
+      if (!payload.ok) throw new Error(payload.error || '模型列表读取失败');
+      const models = payload.models || [];
+      modelSelect.innerHTML = '';
+      if (!models.length) {
+        const option = document.createElement('option');
+        option.value = '';
+        option.textContent = '未发现 GGUF';
+        modelSelect.appendChild(option);
+        modelSelect.disabled = true;
+        return;
+      }
+      modelSelect.disabled = false;
+      for (const model of models) {
+        const option = document.createElement('option');
+        option.value = model.id;
+        option.textContent = formatModelLabel(model);
+        option.title = model.path || '';
+        if (model.selected) option.selected = true;
+        modelSelect.appendChild(option);
+      }
+    } catch (error) {
+      modelSelect.innerHTML = '<option value="">模型读取失败</option>';
+      modelSelect.disabled = true;
+      toast(`模型列表读取失败：${error.message}`);
+    }
+  }
+
+  async function switchModel(modelId) {
+    if (!modelSelect || !modelId || switchingModel) return;
+    switchingModel = true;
+    modelSelect.disabled = true;
+    try {
+      const payload = await postJson('/api/models/select', { model_id: modelId });
+      toast(`已切换模型：${formatModelLabel(payload.model)}`);
+      await loadModels();
+      await refreshSystemStatus();
+    } catch (error) {
+      toast(`模型切换失败：${error.message}`);
+      await loadModels();
+    } finally {
+      switchingModel = false;
+      if (modelSelect.options.length) modelSelect.disabled = false;
+    }
   }
 
   function addThoughtStep(event) {
@@ -376,11 +438,25 @@
     }
   }
 
+  function applyMeetingCollapsed() {
+    if (!meetingControl) return;
+    meetingControl.classList.toggle('w-64', !meetingCollapsed);
+    meetingControl.classList.toggle('w-auto', meetingCollapsed);
+    meetingControl.classList.toggle('p-3', !meetingCollapsed);
+    meetingControl.classList.toggle('p-2', meetingCollapsed);
+    if (meetingControlDetails) meetingControlDetails.classList.toggle('hidden', meetingCollapsed);
+    if (meetingCollapseButton) {
+      meetingCollapseButton.textContent = meetingCollapsed ? '展开' : '−';
+      meetingCollapseButton.title = meetingCollapsed ? '展开会议浮窗' : '收起会议浮窗';
+    }
+  }
+
   function updateResourceUi(status) {
     if (!resourceStatusText && !resourceStatusDot) return;
     const engine = status && status.active_engine ? status.active_engine : 'UNKNOWN';
     const llamaRunning = Boolean(status && status.llama_server_running);
-    const label = `资源状态：${engine} / llama-server ${llamaRunning ? '运行中' : '已停止'}`;
+    const modelName = status && status.current_model && status.current_model.name ? ` / ${status.current_model.name}` : '';
+    const label = `资源状态：${engine} / llama-server ${llamaRunning ? '运行中' : '已停止'}${modelName}`;
     const colorClass = engine === 'IDLE'
       ? 'bg-green-500'
       : engine === 'OCR_RUNNING'
@@ -529,11 +605,21 @@
     skillSaveButton.addEventListener('click', saveSkill);
   }
   if (meetingToggleButton) meetingToggleButton.addEventListener('click', toggleMeeting);
+  if (meetingCollapseButton) {
+    meetingCollapseButton.addEventListener('click', () => {
+      meetingCollapsed = !meetingCollapsed;
+      localStorage.setItem('agentMeetingCollapsed', meetingCollapsed ? '1' : '0');
+      applyMeetingCollapsed();
+    });
+  }
   if (voiceInputButton) voiceInputButton.addEventListener('click', toggleVoiceInput);
+  if (modelSelect) modelSelect.addEventListener('change', event => switchModel(event.target.value));
 
   loadTasks();
   loadFeatures();
   loadSkill();
+  loadModels();
+  applyMeetingCollapsed();
   refreshMeetingStatus();
   refreshSystemStatus();
   setInterval(refreshMeetingStatus, 3000);

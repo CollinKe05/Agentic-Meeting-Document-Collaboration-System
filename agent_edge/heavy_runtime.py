@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import atexit
+import hashlib
+import json
 import os
 import signal
 import subprocess
@@ -25,6 +27,7 @@ DEFAULT_LLAMA_CPP_MODEL = "qwen2.5-1.5b-instruct-q4_k_m"
 DEFAULT_LLAMA_CPP_MODEL_PATH = RUNTIME_DIR / "models" / "qwen2.5-1.5b-instruct-q4_k_m.gguf"
 DEFAULT_LLAMA_CPP_THREADS = 4
 DEFAULT_LLAMA_CPP_CTX_SIZE = 4096
+LLAMA_MODEL_SELECTION_PATH = RUNTIME_DIR / "selected_llama_model.json"
 
 _lock = threading.RLock()
 _active_engine: EngineState = "IDLE"
@@ -59,6 +62,15 @@ class ManagedProcessResult:
     log_tail: str
 
 
+@dataclass(frozen=True)
+class LlamaCppModelInfo:
+    id: str
+    name: str
+    path: str
+    size_bytes: int
+    selected: bool
+
+
 def get_active_engine() -> EngineState:
     with _lock:
         return _active_engine
@@ -69,11 +81,77 @@ def get_llama_cpp_base_url() -> str:
 
 
 def get_llama_cpp_model() -> str:
+    selected = _load_selected_llama_model()
+    if selected:
+        return str(selected.get("name") or Path(str(selected.get("path", ""))).stem)
     return os.environ.get("LLAMA_CPP_MODEL", DEFAULT_LLAMA_CPP_MODEL)
 
 
 def get_llama_cpp_model_path() -> Path:
+    selected = _load_selected_llama_model()
+    if selected and selected.get("path"):
+        return Path(str(selected["path"])).expanduser()
     return Path(os.environ.get("LLAMA_CPP_MODEL_PATH", str(DEFAULT_LLAMA_CPP_MODEL_PATH))).expanduser()
+
+
+def list_llama_cpp_models() -> list[dict[str, Any]]:
+    current_path = get_llama_cpp_model_path().resolve()
+    models: list[LlamaCppModelInfo] = []
+    seen: set[Path] = set()
+    for directory in _llama_model_search_dirs():
+        if not directory.exists() or not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.gguf"), key=lambda item: item.name.lower()):
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            models.append(_model_info(resolved, selected=resolved == current_path))
+
+    if current_path.exists() and current_path not in seen:
+        models.insert(0, _model_info(current_path, selected=True))
+
+    return [model.__dict__ for model in models]
+
+
+def get_current_llama_cpp_model() -> dict[str, Any]:
+    path = get_llama_cpp_model_path().resolve()
+    return _model_info(path, selected=True).__dict__
+
+
+def select_llama_cpp_model(model_id: str) -> dict[str, Any]:
+    global _llama_process
+
+    normalized_id = str(model_id or "").strip()
+    if not normalized_id:
+        raise ValueError("model_id is required")
+
+    with _lock:
+        if _active_engine != "IDLE":
+            raise EngineBusyError(f"Cannot switch model while {_active_engine} is active")
+
+    models = list_llama_cpp_models()
+    selected = next((item for item in models if item["id"] == normalized_id), None)
+    if selected is None:
+        raise FileNotFoundError(f"Unknown GGUF model id: {normalized_id}")
+
+    selected_path = Path(str(selected["path"])).resolve()
+    if selected_path.suffix.lower() != ".gguf" or not selected_path.exists():
+        raise FileNotFoundError(str(selected_path))
+
+    current_path = get_llama_cpp_model_path().resolve()
+    if selected_path != current_path:
+        stop_llama_server(force=True)
+
+    LLAMA_MODEL_SELECTION_PATH.parent.mkdir(parents=True, exist_ok=True)
+    LLAMA_MODEL_SELECTION_PATH.write_text(
+        json.dumps({"name": selected["name"], "path": str(selected_path)}, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+        newline="\n",
+    )
+    os.environ["LLAMA_CPP_MODEL"] = str(selected["name"])
+    os.environ["LLAMA_CPP_MODEL_PATH"] = str(selected_path)
+    return get_current_llama_cpp_model()
 
 
 def get_llama_cpp_bin() -> Path:
@@ -507,6 +585,68 @@ def _read_tail(path: Path, *, max_bytes: int = 4096) -> str:
         size = handle.tell()
         handle.seek(max(0, size - max_bytes), os.SEEK_SET)
         return handle.read().decode("utf-8", errors="replace")
+
+
+def _load_selected_llama_model() -> dict[str, Any] | None:
+    if not LLAMA_MODEL_SELECTION_PATH.exists():
+        return None
+    try:
+        payload = json.loads(LLAMA_MODEL_SELECTION_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    path = str(payload.get("path") or "").strip()
+    if not path:
+        return None
+    return payload
+
+
+def _llama_model_search_dirs() -> list[Path]:
+    candidates: list[Path] = []
+    configured = os.environ.get("LLAMA_CPP_MODEL_DIRS", "")
+    for item in configured.split(os.pathsep):
+        if item.strip():
+            candidates.append(Path(item).expanduser())
+
+    candidates.extend(
+        [
+            get_llama_cpp_model_path().expanduser().parent,
+            PROJECT_ROOT,
+            PROJECT_ROOT / "models",
+            PROJECT_ROOT.parent,
+            RUNTIME_DIR / "models",
+            RUNTIME_DIR,
+        ]
+    )
+
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            resolved = candidate.resolve()
+        except OSError:
+            resolved = candidate
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        unique.append(resolved)
+    return unique
+
+
+def _model_info(path: Path, *, selected: bool) -> LlamaCppModelInfo:
+    resolved = path.resolve()
+    try:
+        size_bytes = resolved.stat().st_size
+    except OSError:
+        size_bytes = 0
+    return LlamaCppModelInfo(
+        id=hashlib.sha1(str(resolved).encode("utf-8")).hexdigest()[:12],
+        name=resolved.stem,
+        path=str(resolved),
+        size_bytes=size_bytes,
+        selected=selected,
+    )
 
 
 def _record_runtime_event(

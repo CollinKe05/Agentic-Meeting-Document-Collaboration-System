@@ -7,10 +7,14 @@ import warnings
 from pathlib import Path
 from typing import Any, Dict, Literal
 
-from langchain_core._api.deprecation import (
-    LangChainDeprecationWarning,
-    LangChainPendingDeprecationWarning,
-)
+try:
+    from langchain_core._api.deprecation import (
+        LangChainDeprecationWarning,
+        LangChainPendingDeprecationWarning,
+    )
+except ModuleNotFoundError:
+    LangChainDeprecationWarning = Warning
+    LangChainPendingDeprecationWarning = Warning
 
 warnings.filterwarnings("ignore", category=LangChainDeprecationWarning)
 warnings.filterwarnings("ignore", category=LangChainPendingDeprecationWarning)
@@ -88,6 +92,12 @@ TOOL_INTENT_KEYWORDS = {
     "截止",
     "奖学金",
     "课程",
+    "会议纪要",
+    "会议记录",
+    "排版",
+    "typst",
+    "pdf",
+    "导出",
 }
 
 
@@ -144,6 +154,7 @@ def planner_node(state: AgentState) -> Dict[str, Any]:
 - 至少包含一个 learn_skill 步骤和一个 use_tool 步骤。
 - 如果用户没有指定文件，默认读取 demo_input.txt。
 - 如果用户要求解析 PDF 或图片，优先学习 local_tool_skill.md，并调用 PARSE_DOCUMENT_WITH_OCR_PC。
+- 如果用户要求会议纪要排版、Typst 或导出 PDF，优先学习 meeting_minutes_skill.md，并调用 FORMAT_MEETING_MINUTES。
 """
 
     raw = llm_call(prompt)
@@ -442,6 +453,27 @@ def _deterministic_plan(user_input: str) -> list[dict[str, Any]]:
 
     if path:
         suffix = Path(path).suffix.lower()
+        if _should_format_meeting_minutes(user_input, path):
+            return [
+                {
+                    "id": 1,
+                    "kind": "learn_skill",
+                    "objective": "学习会议纪要格式化排版技能。",
+                    "skill_file": "meeting_minutes_skill.md",
+                    "status": "todo",
+                    "attempts": 0,
+                },
+                {
+                    "id": 2,
+                    "kind": "use_tool",
+                    "objective": "生成会议纪要结构化数据和 Typst/Markdown/PDF 文件。",
+                    "tool_name": "FORMAT_MEETING_MINUTES",
+                    "tool_input": {"path": path, "template": "standard", "output_format": "pdf"},
+                    "status": "todo",
+                    "attempts": 0,
+                },
+            ]
+
         if suffix in OCR_FILE_EXTENSIONS or "parse_document_with_ocr_pc" in lowered or "ocr" in lowered:
             return [
                 {
@@ -483,6 +515,27 @@ def _deterministic_plan(user_input: str) -> list[dict[str, Any]]:
                     "attempts": 0,
                 },
             ]
+
+    if _should_format_meeting_minutes(user_input, path):
+        return [
+            {
+                "id": 1,
+                "kind": "learn_skill",
+                "objective": "学习会议纪要格式化排版技能。",
+                "skill_file": "meeting_minutes_skill.md",
+                "status": "todo",
+                "attempts": 0,
+            },
+            {
+                "id": 2,
+                "kind": "use_tool",
+                "objective": "基于当前会议记录生成会议纪要排版文件。",
+                "tool_name": "FORMAT_MEETING_MINUTES",
+                "tool_input": {"template": "standard", "output_format": "pdf"},
+                "status": "todo",
+                "attempts": 0,
+            },
+        ]
 
     if "列出" in user_input and ("技能" in user_input or "skill" in lowered):
         return [
@@ -527,6 +580,20 @@ def _deterministic_plan(user_input: str) -> list[dict[str, Any]]:
         ]
 
     return []
+
+
+def _should_format_meeting_minutes(user_input: str, path: str | None = None) -> bool:
+    lowered = user_input.lower()
+    has_meeting_intent = any(keyword in user_input for keyword in ("会议", "纪要", "转写", "录音记录"))
+    has_format_intent = any(
+        keyword in lowered
+        for keyword in ("typst", "pdf", "format_meeting_minutes", "meeting minutes", "export")
+    ) or any(keyword in user_input for keyword in ("排版", "格式化", "导出", "输出文件", "生成文件", "模板"))
+    path_name = Path(path).name.lower() if path else ""
+    path_looks_meeting = any(keyword in path_name for keyword in ("meeting", "transcript")) or any(
+        keyword in path_name for keyword in ("会议", "录音记录")
+    )
+    return has_format_intent and (has_meeting_intent or path_looks_meeting)
 
 
 def _should_use_latest_ocr(user_input: str) -> bool:
@@ -609,6 +676,10 @@ def _repair_file_tool_route(task: dict[str, Any], user_input: str) -> None:
         return
 
     suffix = Path(path).suffix.lower()
+    if tool_name == "FORMAT_MEETING_MINUTES":
+        task["tool_input"] = {**tool_input, "path": path}
+        return
+
     if suffix in TEXT_FILE_EXTENSIONS:
         task["tool_name"] = "SAFE_READ_TEXT_FILE"
         task["tool_input"] = {"path": path}
@@ -765,29 +836,34 @@ def _extract_final_answer(past_steps: list[tuple], user_input: str = "") -> list
             path = payload.get("path", "最近 OCR Markdown")
             content = str(payload.get("content", "")).rstrip("\n")
             answers.append(_answer_from_ocr_content(path=str(path), content=content, user_input=user_input))
+        elif tool_name == "FORMAT_MEETING_MINUTES":
+            typst_status = payload.get("typst") if isinstance(payload.get("typst"), dict) else {}
+            pdf_path = payload.get("pdf_path") or "未生成 PDF（可能未安装 typst）"
+            answers.append(
+                "会议纪要排版文件已生成。\n"
+                f"- 标题：{payload.get('title') or '会议纪要'}\n"
+                f"- 输出目录：{payload.get('output_dir')}\n"
+                f"- JSON：{payload.get('json_path')}\n"
+                f"- Markdown：{payload.get('markdown_path')}\n"
+                f"- Typst：{payload.get('typ_path')}\n"
+                f"- PDF：{pdf_path}\n"
+                f"- Typst 编译：{'成功' if typst_status.get('ok') else typst_status.get('error', '未编译')}"
+            )
         elif tool_name in {"PARSE_DOCUMENT_WITH_OCR_PC", "OCR_PC_PARSE_DOCUMENT"}:
             md_path = payload.get("markdown_path") or "未生成 Markdown"
             content_path = payload.get("content_list_v2_path") or "未生成 content_list_v2"
             blocks_path = payload.get("blocks_json_path") or "未生成 blocks JSON"
             images_dir = payload.get("images_dir") or "无图片目录"
             block_count = payload.get("block_count", 0)
-            ocr_text = str(payload.get("ocr_text") or payload.get("markdown_preview") or "")
-            ocr_text_chars = payload.get("ocr_text_chars")
-            ocr_text_truncated = bool(payload.get("ocr_text_truncated"))
             preview = str(payload.get("markdown_preview") or "")
             header = (
                 "OCR 文档解析完成。\n"
-                f"- 完整 OCR 识别原文文件：{md_path}\n"
+                f"- Markdown 文件：{md_path}\n"
                 f"- content_list_v2：{content_path}\n"
                 f"- blocks JSON：{blocks_path}\n"
                 f"- 图片目录：{images_dir}\n"
                 f"- 文本块数量：{block_count}"
             )
-            if ocr_text:
-                suffix = ""
-                if ocr_text_truncated:
-                    suffix = f"\n\n[OCR 原文较长，界面仅展示前 {len(ocr_text)} 字；完整原文请打开上面的 Markdown 文件。总字符数：{ocr_text_chars}]"
-                header += f"\n\nOCR 识别原文：\n```markdown\n{ocr_text}\n```{suffix}"
             if _wants_content_summary(user_input) and preview.strip():
                 answers.append(header + "\n\n" + _summarize_ocr_markdown(markdown_preview=preview, user_input=user_input))
             else:
