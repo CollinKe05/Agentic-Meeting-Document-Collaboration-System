@@ -24,6 +24,7 @@ SUPPORTED_OCR_SUFFIXES = {
     ".webp",
 }
 DEFAULT_OCR_RESPONSE_TEXT_CHARS = 12000
+OCR_BACKENDS = {"auto", "ocr_pc", "syss"}
 
 
 def parse_document_with_ocr_pc(args: dict[str, Any]) -> dict[str, Any]:
@@ -49,10 +50,12 @@ def parse_document_with_ocr_pc(args: dict[str, Any]) -> dict[str, Any]:
 
     log_path = output_root / "_logs" / f"{input_path.stem}-{int(time.time())}.log"
     result_path = output_root / f"{input_path.stem}_ocr_result.json"
+    backend = _resolve_ocr_backend(args)
+    runner_module = "agent_edge.syss_ocr_runner" if backend == "syss" else "agent_edge.ocr_pc_runner"
     command = [
         _python_for_ocr(),
         "-m",
-        "agent_edge.ocr_pc_runner",
+        runner_module,
         "--input",
         str(input_path),
         "--output-root",
@@ -66,7 +69,8 @@ def parse_document_with_ocr_pc(args: dict[str, Any]) -> dict[str, Any]:
     ]
 
     env = os.environ.copy()
-    env.setdefault("OCR_PC_PROJECT_DIR", str(PROJECT_ROOT / "OCR_pc" / "OCR_pc"))
+    if backend == "ocr_pc":
+        env.setdefault("OCR_PC_PROJECT_DIR", str(PROJECT_ROOT / "OCR_pc" / "OCR_pc"))
 
     try:
         result = run_ocr_blocking(
@@ -104,7 +108,7 @@ def parse_document_with_ocr_pc(args: dict[str, Any]) -> dict[str, Any]:
             "ok": True,
             "input_path": rel_path,
             "output_root": str(output_root),
-            "backend": "ocr_pc",
+            "backend": payload.get("backend") or backend,
             "log_path": str(result.log_path),
         }
     )
@@ -128,6 +132,34 @@ def _python_for_ocr() -> str:
         return str(windows_venv)
 
     return sys.executable
+
+
+def _resolve_ocr_backend(args: dict[str, Any]) -> str:
+    requested = str(args.get("backend") or os.environ.get("AGENT_OCR_BACKEND") or "auto").strip().lower()
+    if requested not in OCR_BACKENDS:
+        raise ValueError(f"AGENT_OCR_BACKEND must be one of: {', '.join(sorted(OCR_BACKENDS))}")
+    if requested != "auto":
+        return requested
+    if _syss_is_configured():
+        return "syss"
+    return "ocr_pc"
+
+
+def _syss_is_configured() -> bool:
+    configured_names = {
+        "SYSS_BPU_RUNTIME_DIR",
+        "SYSS_BPU_DET",
+        "SYSS_BPU_REC",
+        "SYSS_BPU_DICT",
+        "SYSS_YOLO_MODEL",
+        "SYSS_LAYOUTREADER",
+    }
+    if any(os.environ.get(name) for name in configured_names):
+        return True
+    board_runtime = Path("/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/runtime/python")
+    board_det = Path("/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/model/en_PP-OCRv3_det_640x640_nv12.bin")
+    board_rec = Path("/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/model/rec_ppocr_cn.bin")
+    return board_runtime.exists() and board_det.exists() and board_rec.exists()
 
 
 def _read_result_payload(path: Path) -> dict[str, Any]:

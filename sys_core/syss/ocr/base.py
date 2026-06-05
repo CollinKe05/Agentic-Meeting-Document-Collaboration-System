@@ -1,8 +1,14 @@
 """OCR 基类接口"""
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import List
-import numpy as np
+from typing import Any, TYPE_CHECKING, List
+
+if TYPE_CHECKING:
+    import numpy as np
+else:
+    np = Any
 
 
 @dataclass

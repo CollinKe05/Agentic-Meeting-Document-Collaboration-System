@@ -20,6 +20,9 @@
 == 摘要
 {{summary}}
 
+== 重点内容
+{{key_points}}
+
 == 议题与讨论
 {{topics}}
 

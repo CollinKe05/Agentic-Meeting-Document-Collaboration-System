@@ -121,8 +121,35 @@ http://127.0.0.1:7860
 - `content_list_v2_path`
 - `blocks_json_path`
 - `images_dir`
+- `checkpoint_dir`
 - `markdown_preview`
 - `log_path`
+
+RDK 板端使用 syss + BPU PaddleOCR 流水线时，保持工具名不变，启动前配置：
+
+```bash
+export AGENT_OCR_BACKEND=syss
+export SYSS_PROJECT_DIR=/home/sunrise/syss/syss_f16yolo
+```
+
+如果不用外部 syss 项目，而是走本仓库内置 `sys_core.syss`，再配置：
+
+```bash
+export SYSS_BPU_RUNTIME_DIR=/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/runtime/python
+export SYSS_BPU_DET=/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/model/en_PP-OCRv3_det_640x640_nv12.bin
+export SYSS_BPU_REC=/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/model/rec_ppocr_cn.bin
+export SYSS_BPU_DICT=/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/runtime/python/dict.txt
+```
+
+外部 syss 项目的 fp16 YOLO、BPU OCR、LayoutReader 路径由它自己的 `config.py` 管。内置路线下，DocLayout-YOLO 识框第一版继续使用 CPU ONNX；如果模型不在默认目录，用 `SYSS_YOLO_MODEL` 指定。BPU OCR 默认会在后台和 YOLO 阶段重叠执行；如需关闭，可设 `SYSS_BPU_OVERLAP=0`。
+
+如果不需要 Agent 的资源锁和 UI 链路，只想在板端一次命令完成 OCR，可直接跑：
+
+```bash
+bash scripts/run_syss_ocr_once.sh -i workspace_files/uploads/demo.pdf -o workspace_files/ocr_outputs
+```
+
+这个脚本会调用 `agent_edge.syss_ocr_once`，输出同样的 `*_ocr_result.json`、Markdown、blocks、content_list_v2。注意：one-shot 脚本不会自动停止 `llama-server`，需要在资源充足或 LLM 已停时使用。
 
 ## 重要约束
 

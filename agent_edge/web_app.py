@@ -93,6 +93,12 @@ class AgentUIHandler(BaseHTTPRequestHandler):
 
             self._send_json({"ok": True, "meeting": meeting_status()})
             return
+        if path == "/api/meeting/records":
+            from .meeting_asr import list_meeting_records
+
+            limit = int(parse_qs(parsed.query).get("limit", ["50"])[0])
+            self._send_json({"ok": True, "records": list_meeting_records(limit=limit)})
+            return
         if path == "/api/voice-input/status":
             from .meeting_asr import voice_input_status
 

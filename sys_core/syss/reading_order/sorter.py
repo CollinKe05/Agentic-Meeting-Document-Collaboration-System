@@ -86,14 +86,21 @@ class ReadingOrderSorter:
                     "page_info": page_data["page_info"],
                     "blocks": page_data["blocks"]})
                 continue
+            if len(all_boxes) > MAX_LEN:
+                print(f"[排序] 单页文本框 {len(all_boxes)} 超过 LayoutReader 限制，回退快速排序")
+                from .fast_sorter import FastReadingOrderSorter
+                return FastReadingOrderSorter().sort(merged_data)
 
             # 归一化坐标 → 0-1000
+            page_info = page_data.get("page_info", {})
+            page_w = max(1, int(page_info.get("page_width") or _max_coord(all_boxes, 2) or 1700))
+            page_h = max(1, int(page_info.get("page_height") or _max_coord(all_boxes, 3) or 2200))
             boxes_norm = []
             for tb in all_boxes:
-                x1 = min(1000, max(0, int(tb["bbox"][0] * 1000 / 1700)))
-                y1 = min(1000, max(0, int(tb["bbox"][1] * 1000 / 2200)))
-                x2 = min(1000, max(0, int(tb["bbox"][2] * 1000 / 1700)))
-                y2 = min(1000, max(0, int(tb["bbox"][3] * 1000 / 2200)))
+                x1 = min(1000, max(0, int(tb["bbox"][0] * 1000 / page_w)))
+                y1 = min(1000, max(0, int(tb["bbox"][1] * 1000 / page_h)))
+                x2 = min(1000, max(0, int(tb["bbox"][2] * 1000 / page_w)))
+                y2 = min(1000, max(0, int(tb["bbox"][3] * 1000 / page_h)))
                 boxes_norm.append([x1, y1, x2, y2])
 
             # 推理
@@ -149,3 +156,8 @@ class ReadingOrderSorter:
             },
             "pages": output_pages
         }
+
+
+def _max_coord(text_boxes, index):
+    values = [tb["bbox"][index] for tb in text_boxes if len(tb.get("bbox", [])) > index]
+    return max(values) if values else 0

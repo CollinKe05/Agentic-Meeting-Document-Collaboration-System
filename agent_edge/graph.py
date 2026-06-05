@@ -839,6 +839,7 @@ def _extract_final_answer(past_steps: list[tuple], user_input: str = "") -> list
         elif tool_name == "FORMAT_MEETING_MINUTES":
             typst_status = payload.get("typst") if isinstance(payload.get("typst"), dict) else {}
             pdf_path = payload.get("pdf_path") or "未生成 PDF（可能未安装 typst）"
+            desktop_pdf_path = payload.get("desktop_pdf_path") or "未复制到桌面"
             answers.append(
                 "会议纪要排版文件已生成。\n"
                 f"- 标题：{payload.get('title') or '会议纪要'}\n"
@@ -847,6 +848,7 @@ def _extract_final_answer(past_steps: list[tuple], user_input: str = "") -> list
                 f"- Markdown：{payload.get('markdown_path')}\n"
                 f"- Typst：{payload.get('typ_path')}\n"
                 f"- PDF：{pdf_path}\n"
+                f"- 桌面 PDF：{desktop_pdf_path}\n"
                 f"- Typst 编译：{'成功' if typst_status.get('ok') else typst_status.get('error', '未编译')}"
             )
         elif tool_name in {"PARSE_DOCUMENT_WITH_OCR_PC", "OCR_PC_PARSE_DOCUMENT"}:

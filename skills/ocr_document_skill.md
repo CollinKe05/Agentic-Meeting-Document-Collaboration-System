@@ -43,6 +43,14 @@ Action Input:
 - OCR 完成并释放资源后，Agent 才能重新调用 LLM 总结 Markdown。
 - 不要让 OCR 与 LLM 推理同时执行。
 
+后端配置：
+
+- 默认工具名仍是 `PARSE_DOCUMENT_WITH_OCR_PC`。
+- 板端 RDK BPU OCR 流水线设 `AGENT_OCR_BACKEND=syss`。
+- 若使用板端独立 syss 流水线，设 `SYSS_PROJECT_DIR=/home/sunrise/syss/syss_f16yolo`。
+- BPU 模型路径用 `SYSS_BPU_RUNTIME_DIR`、`SYSS_BPU_DET`、`SYSS_BPU_REC`、`SYSS_BPU_DICT` 配置。
+- DocLayout-YOLO 第一版仍走 CPU ONNX，路径用 `SYSS_YOLO_MODEL` 配置。
+
 用户常见请求与处理：
 
 - “解析这个 PDF”：调用 `PARSE_DOCUMENT_WITH_OCR_PC`。

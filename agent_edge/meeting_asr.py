@@ -11,17 +11,19 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from .paths import PROJECT_ROOT
+from .paths import PROJECT_ROOT, WORKSPACE_DIR
 
 
 ASR_DIR = Path(os.environ.get("SHERPA_ASR_DIR", PROJECT_ROOT / "sherpa_asr" / "sherpa_asr")).expanduser()
 DEFAULT_TRANSCRIPT_LIMIT = 20000
 ASR_RUNTIME_DIR = PROJECT_ROOT / ".runtime" / "asr"
+MEETING_RECORDS_DIR = WORKSPACE_DIR / "meeting_records"
 
 _lock = threading.RLock()
 _meeting_session: "AsrSession | None" = None
 _voice_session: "AsrSession | None" = None
 _last_meeting_transcript_path: Path | None = None
+_last_meeting_workspace_path: Path | None = None
 _last_meeting_transcript = ""
 
 
@@ -38,35 +40,44 @@ class AsrSession:
 
 
 def start_meeting() -> dict[str, Any]:
-    global _last_meeting_transcript, _last_meeting_transcript_path, _meeting_session
+    global _last_meeting_transcript, _last_meeting_transcript_path, _last_meeting_workspace_path, _meeting_session
     with _lock:
         if _is_live(_voice_session):
             raise RuntimeError("短语音输入正在使用麦克风，请先停止语音输入。")
         if _is_live(_meeting_session):
             return meeting_status()
         _last_meeting_transcript_path = None
+        _last_meeting_workspace_path = None
         _last_meeting_transcript = ""
         _meeting_session = _start_asr_session("meeting")
         return meeting_status()
 
 
 def stop_meeting() -> dict[str, Any]:
-    global _last_meeting_transcript, _last_meeting_transcript_path, _meeting_session
+    global _last_meeting_transcript, _last_meeting_transcript_path, _last_meeting_workspace_path, _meeting_session
     with _lock:
         session = _meeting_session
         _meeting_session = None
         cached_path = _last_meeting_transcript_path
+        cached_workspace_path = _last_meeting_workspace_path
         cached_transcript = _last_meeting_transcript
 
     result = _stop_session(session, kind="meeting")
     transcript = str(result.get("transcript") or "")
     if transcript:
+        workspace_path = _persist_meeting_transcript(
+            transcript=transcript,
+            source_path=Path(str(result["transcript_path"])) if result.get("transcript_path") else None,
+        )
+        _attach_workspace_record(result, workspace_path)
         with _lock:
             raw_path = result.get("transcript_path")
             _last_meeting_transcript_path = Path(str(raw_path)) if raw_path else None
+            _last_meeting_workspace_path = workspace_path
             _last_meeting_transcript = transcript
     elif session is None and cached_transcript:
         result["transcript_path"] = str(cached_path) if cached_path else None
+        _attach_workspace_record(result, cached_workspace_path)
         result["transcript"] = cached_transcript
     return result
 
@@ -75,13 +86,15 @@ def meeting_status() -> dict[str, Any]:
     with _lock:
         session = _meeting_session
         if session is None and _last_meeting_transcript:
-            return {
+            result = {
                 "status": "waiting",
                 "running": False,
                 "backend": _resolve_asr_backend(),
                 "transcript_path": str(_last_meeting_transcript_path) if _last_meeting_transcript_path else None,
                 "transcript": _last_meeting_transcript,
             }
+            _attach_workspace_record(result, _last_meeting_workspace_path)
+            return result
         return _status_for_session(session, idle_label="waiting", kind="meeting")
 
 
@@ -94,6 +107,27 @@ def meeting_summary_prompt() -> str:
         "请基于下面的实时会议转写生成会议纪要，包含：主题、关键结论、行动项、风险或待确认事项。\n\n"
         f"<meeting_transcript>\n{transcript}\n</meeting_transcript>"
     )
+
+
+def list_meeting_records(*, limit: int = 50) -> list[dict[str, Any]]:
+    if not MEETING_RECORDS_DIR.exists():
+        return []
+    records: list[dict[str, Any]] = []
+    for path in MEETING_RECORDS_DIR.glob("*.txt"):
+        if not path.is_file():
+            continue
+        stat = path.stat()
+        records.append(
+            {
+                "name": path.name,
+                "path": path.relative_to(WORKSPACE_DIR).as_posix(),
+                "absolute_path": str(path),
+                "size": stat.st_size,
+                "updated_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
+            }
+        )
+    records.sort(key=lambda item: item["updated_at"], reverse=True)
+    return records[:limit]
 
 
 def start_voice_input() -> dict[str, Any]:
@@ -186,6 +220,33 @@ def _stop_session(session: AsrSession | None, *, kind: str) -> dict[str, Any]:
         "transcript_path": str(transcript_path) if transcript_path else None,
         "transcript": transcript,
     }
+
+
+def _persist_meeting_transcript(*, transcript: str, source_path: Path | None) -> Path:
+    MEETING_RECORDS_DIR.mkdir(parents=True, exist_ok=True)
+    if source_path is not None:
+        stem = source_path.stem
+    else:
+        stem = "meeting"
+    safe_stem = re.sub(r"[^A-Za-z0-9._\-\u4e00-\u9fff]+", "_", stem).strip("_") or "meeting"
+    if not safe_stem.startswith(("meeting_", "录音记录_", "錄音記錄_")):
+        safe_stem = f"meeting_{safe_stem}"
+    target = MEETING_RECORDS_DIR / f"{safe_stem}.txt"
+    if target.exists():
+        target = MEETING_RECORDS_DIR / f"{safe_stem}_{int(time.time())}.txt"
+    target.write_text(transcript, encoding="utf-8", newline="\n")
+    return target
+
+
+def _attach_workspace_record(result: dict[str, Any], workspace_path: Path | None) -> None:
+    if workspace_path is None:
+        return
+    try:
+        rel_path = workspace_path.relative_to(WORKSPACE_DIR).as_posix()
+    except ValueError:
+        rel_path = str(workspace_path)
+    result["workspace_transcript_path"] = str(workspace_path)
+    result["workspace_transcript_relpath"] = rel_path
 
 
 def _status_for_session(session: AsrSession | None, *, idle_label: str, kind: str) -> dict[str, Any]:

@@ -42,7 +42,7 @@ class OcrPcToolTest(unittest.TestCase):
             with mock.patch("agent_edge.ocr_pc_tool.WORKSPACE_DIR", workspace):
                 with mock.patch("agent_edge.ocr_pc_tool.create_resource_token", return_value="token"):
                     with mock.patch("agent_edge.ocr_pc_tool.run_ocr_blocking", side_effect=fake_run) as run_mock:
-                        with mock.patch.dict("os.environ", {"OCR_PC_PYTHON": "custom-python"}):
+                        with mock.patch.dict("os.environ", {"OCR_PC_PYTHON": "custom-python", "AGENT_OCR_BACKEND": "ocr_pc"}):
                             result = ocr_pc_tool.parse_document_with_ocr_pc({"path": "uploads/demo.pdf"})
 
         self.assertTrue(result["ok"])
@@ -50,6 +50,50 @@ class OcrPcToolTest(unittest.TestCase):
         self.assertEqual(result["markdown_preview"], "hello")
         self.assertEqual(result["ocr_text"], "完整 OCR 原文")
         self.assertEqual(result["ocr_text_path"], str(Path(result["markdown_path"])))
+        run_mock.assert_called_once()
+
+    def test_parse_document_can_select_syss_runner(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp)
+            upload_dir = workspace / "uploads"
+            upload_dir.mkdir()
+            (upload_dir / "demo.png").write_bytes(b"image")
+
+            def fake_run(command, **kwargs):
+                self.assertIn("agent_edge.syss_ocr_runner", command)
+                output_root = workspace / "ocr_outputs"
+                output_root.mkdir(exist_ok=True)
+                markdown_path = output_root / "demo.md"
+                markdown_path.write_text("BPU OCR 原文", encoding="utf-8")
+                result_path = output_root / "demo_ocr_result.json"
+                result_path.write_text(
+                    json.dumps(
+                        {
+                            "ok": True,
+                            "backend": "syss",
+                            "ocr_backend": "rdk_bpu",
+                            "markdown_path": str(markdown_path),
+                            "blocks_json_path": str(output_root / "demo_blocks.json"),
+                            "content_list_v2_path": str(output_root / "demo_content_list_v2.json"),
+                            "images_dir": None,
+                            "block_count": 2,
+                            "markdown_preview": "BPU preview",
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+                return ManagedProcessResult(command=("syss",), returncode=0, log_path=output_root / "syss.log", log_tail="ok")
+
+            with mock.patch("agent_edge.ocr_pc_tool.WORKSPACE_DIR", workspace):
+                with mock.patch("agent_edge.ocr_pc_tool.create_resource_token", return_value="token"):
+                    with mock.patch("agent_edge.ocr_pc_tool.run_ocr_blocking", side_effect=fake_run) as run_mock:
+                        with mock.patch.dict("os.environ", {"OCR_PC_PYTHON": "custom-python", "AGENT_OCR_BACKEND": "syss"}):
+                            result = ocr_pc_tool.parse_document_with_ocr_pc({"path": "uploads/demo.png"})
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["backend"], "syss")
+        self.assertEqual(result["ocr_backend"], "rdk_bpu")
+        self.assertEqual(result["ocr_text"], "BPU OCR 原文")
         run_mock.assert_called_once()
 
     def test_rejects_unsupported_suffix(self) -> None:

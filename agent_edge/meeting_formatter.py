@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -50,6 +51,7 @@ def format_meeting_minutes(args: dict[str, Any]) -> dict[str, Any]:
     transcript_path.write_text(cleaned, encoding="utf-8", newline="\n")
 
     typst_result = _compile_typst(typ_path=typ_path, pdf_path=pdf_path)
+    desktop_copy = _copy_pdf_to_desktop(pdf_path=pdf_path, minutes=minutes) if typst_result["ok"] else {"ok": False, "copied": False}
 
     return {
         "ok": True,
@@ -59,8 +61,10 @@ def format_meeting_minutes(args: dict[str, Any]) -> dict[str, Any]:
         "markdown_path": str(markdown_path),
         "typ_path": str(typ_path),
         "pdf_path": str(pdf_path) if typst_result["ok"] else None,
+        "desktop_pdf_path": desktop_copy.get("path"),
         "transcript_path": str(transcript_path),
         "typst": typst_result,
+        "desktop_copy": desktop_copy,
         "summary": minutes.get("summary", ""),
         "todo_count": len(minutes.get("todos", [])),
         "risk_count": len(minutes.get("risks", [])),
@@ -95,26 +99,40 @@ def _load_transcript(args: dict[str, Any]) -> tuple[str, Path | None]:
 
 
 def _generate_minutes_with_llm(*, transcript: str, title: str, source_path: Path | None) -> dict[str, Any]:
-    from .llm import llm_call
-
     source_name = source_path.name if source_path else "当前会议转写"
+    overview = _generate_overview_with_llm(transcript=transcript, title=title, source_name=source_name)
+    topics = _generate_topics_with_llm(transcript=transcript, source_name=source_name)
+    actions = _generate_actions_with_llm(transcript=transcript, source_name=source_name)
+
+    decisions = _string_list(topics.get("decisions")) + _string_list(actions.get("decisions"))
+    return {
+        "title": overview.get("title") or title,
+        "date": overview.get("date"),
+        "participants": overview.get("participants"),
+        "summary": overview.get("summary"),
+        "key_points": overview.get("key_points"),
+        "topics": topics.get("topics"),
+        "decisions": decisions,
+        "todos": actions.get("todos"),
+        "risks": actions.get("risks"),
+    }
+
+
+def _generate_overview_with_llm(*, transcript: str, title: str, source_name: str) -> dict[str, Any]:
     prompt = f"""
-你是离线端会议纪要整理器。请严格根据会议转写生成结构化 JSON，不要编造未出现的信息。
+你是离线端会议纪要整理器。现在只生成“概览部分”，不要生成完整会议纪要。
 
 输出必须是一个 JSON object，不要 Markdown，不要代码块。
 字段：
 - title: 字符串
 - date: 字符串，优先使用转写里的日期，没有则留空
 - participants: 字符串数组，无法确认则 []
-- summary: 80-200 字中文摘要
-- topics: 数组，每项包含 name、discussion、decisions
-- decisions: 字符串数组
-- todos: 数组，每项包含 task、owner、deadline、status
-- risks: 字符串数组
+- summary: 150-300 字中文摘要，必须覆盖会议背景、主要议题、已形成结论、待办和风险
+- key_points: 字符串数组，至少 5 条；如果信息密度高，应自然增加到 8-12 条；每条要具体，不能只写十几个字
 
 规则：
-- 如果转写内容太少或噪声很大，要在 summary 或 risks 里说明。
-- owner/deadline 不确定时写“待定”。
+- 只基于转写内容，不要编造未出现的信息。
+- 如果转写内容不足以支持 5 条，要用“未充分识别到...”说明缺口，但仍尽量基于已有内容拆出具体点。
 - 不要输出 Action/Observation。
 
 用户指定标题：{title or "未指定"}
@@ -123,6 +141,61 @@ def _generate_minutes_with_llm(*, transcript: str, title: str, source_path: Path
 会议转写：
 {transcript[:MAX_TRANSCRIPT_CHARS]}
 """.strip()
+    return _llm_json_call(prompt)
+
+
+def _generate_topics_with_llm(*, transcript: str, source_name: str) -> dict[str, Any]:
+    prompt = f"""
+你是离线端会议纪要整理器。现在只生成“议题与结论部分”，不要生成完整会议纪要。
+
+输出必须是一个 JSON object，不要 Markdown，不要代码块。
+字段：
+- topics: 数组，每项包含：
+  - name: 议题名称
+  - discussion: 字符串数组。每个主要议题至少 5 条具体讨论点；信息密度高时自然增加，不要过度压缩。
+  - decisions: 字符串数组。只写已经从转写中能确认的结论。
+- decisions: 字符串数组，汇总所有关键结论；至少尽量拆成 5 条，信息不足时说明“未形成明确结论”。
+
+规则：
+- 讨论点要包含对象、动作、原因、影响或下一步，不能只写“讨论了 OCR”“提到 BPU”这种短句。
+- 如果 ASR 噪声导致不确定，要写“不确定/需复核”，不要编造。
+- 不要输出 Action/Observation。
+
+来源文件：{source_name}
+
+会议转写：
+{transcript[:MAX_TRANSCRIPT_CHARS]}
+""".strip()
+    return _llm_json_call(prompt)
+
+
+def _generate_actions_with_llm(*, transcript: str, source_name: str) -> dict[str, Any]:
+    prompt = f"""
+你是离线端会议纪要整理器。现在只生成“待办、风险与待确认部分”，不要生成完整会议纪要。
+
+输出必须是一个 JSON object，不要 Markdown，不要代码块。
+字段：
+- todos: 数组，每项包含 task、owner、deadline、status。能拆就拆细，不要把多个动作合并成一句。
+- risks: 字符串数组，至少尽量列出 5 条风险/待确认/依赖项；信息不足时说明缺口。
+- decisions: 字符串数组，只补充与待办或风险直接相关的结论。
+
+规则：
+- owner/deadline 不确定时写“待定”。
+- 风险要具体到“什么不确定/影响什么/需要谁确认”。
+- 如果转写内容很少，可以少于 5 条，但必须说明“转写信息不足”。
+- 不要输出 Action/Observation。
+
+来源文件：{source_name}
+
+会议转写：
+{transcript[:MAX_TRANSCRIPT_CHARS]}
+""".strip()
+    return _llm_json_call(prompt)
+
+
+def _llm_json_call(prompt: str) -> dict[str, Any]:
+    from .llm import llm_call
+
     raw = llm_call(prompt)
     return _extract_json_object(raw)
 
@@ -165,6 +238,7 @@ def _normalize_minutes(minutes: dict[str, Any], *, transcript: str, source_path:
         "generated_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "participants": _string_list(minutes.get("participants")),
         "summary": str(minutes.get("summary") or fallback["summary"]).strip(),
+        "key_points": _ensure_minimum_points(_string_list(minutes.get("key_points")), transcript),
         "topics": _topics(minutes.get("topics")),
         "decisions": _string_list(minutes.get("decisions")),
         "todos": _todos(minutes.get("todos")),
@@ -183,6 +257,7 @@ def _fallback_minutes(transcript: str, *, title: str, source_path: Path | None) 
         "date": meeting_date,
         "participants": [],
         "summary": excerpt[:220] if excerpt else "会议转写内容较少，暂无法生成充分摘要。",
+        "key_points": content_lines[:8] or ["会议转写内容较少，暂无法生成充分重点。"],
         "topics": [{"name": "会议讨论", "discussion": content_lines[:8], "decisions": []}],
         "decisions": [],
         "todos": [],
@@ -241,6 +316,22 @@ def _string_list(value: Any) -> list[str]:
                 result.append(normalized)
         return result
     return [str(value).strip()] if str(value).strip() else []
+
+
+def _ensure_minimum_points(points: list[str], transcript: str, *, minimum: int = 5) -> list[str]:
+    result = [item for item in points if item.strip()]
+    if len(result) >= minimum:
+        return result
+    segments = [text for _, text in _timestamped_segments(transcript)]
+    if not segments:
+        segments = [line.strip() for line in transcript.splitlines() if line.strip()]
+    for segment in segments:
+        if len(result) >= minimum:
+            break
+        normalized = segment.strip()
+        if normalized and normalized not in result:
+            result.append(normalized)
+    return result
 
 
 def _topics(value: Any) -> list[dict[str, Any]]:
@@ -303,6 +394,9 @@ def _render_markdown(minutes: dict[str, Any]) -> str:
         "## 摘要",
         str(minutes.get("summary") or "暂无摘要。"),
         "",
+        "## 重点内容",
+        *_markdown_list(minutes.get("key_points"), empty="暂无明确重点。"),
+        "",
         "## 议题与讨论",
     ]
     for topic in minutes.get("topics") or []:
@@ -343,6 +437,7 @@ def _render_typst(minutes: dict[str, Any], *, template: str) -> str:
         "title": _typst_text(minutes["title"]),
         "metadata": _typst_metadata(minutes),
         "summary": _typst_paragraph(minutes.get("summary") or "暂无摘要。"),
+        "key_points": _typst_bullets(minutes.get("key_points"), empty="暂无明确重点。"),
         "topics": _typst_topics(minutes.get("topics") or []),
         "decisions": _typst_bullets(minutes.get("decisions"), empty="暂无明确结论。"),
         "todos": _typst_todos(minutes.get("todos") or []),
@@ -444,6 +539,42 @@ def _compile_typst(*, typ_path: Path, pdf_path: Path) -> dict[str, Any]:
             "error": (completed.stderr or completed.stdout or "typst compile failed")[:1000],
         }
     return {"ok": True, "compiled": True, "pdf_path": str(pdf_path)}
+
+
+def _copy_pdf_to_desktop(*, pdf_path: Path, minutes: dict[str, Any]) -> dict[str, Any]:
+    desktop_dir = _resolve_desktop_dir()
+    if desktop_dir is None:
+        return {
+            "ok": False,
+            "copied": False,
+            "error": "未找到桌面目录。可设置 MEETING_MINUTES_DESKTOP_DIR 或 AGENT_DESKTOP_DIR。",
+        }
+    try:
+        desktop_dir.mkdir(parents=True, exist_ok=True)
+        date_part = str(minutes.get("date") or dt.date.today().isoformat())
+        title_part = re.sub(r"[^A-Za-z0-9._\-\u4e00-\u9fff]+", "_", str(minutes.get("title") or "会议纪要")).strip("_")
+        target = desktop_dir / f"{date_part}_{title_part or '会议纪要'}.pdf"
+        if target.exists():
+            target = desktop_dir / f"{date_part}_{title_part or '会议纪要'}_{int(time.time())}.pdf"
+        shutil.copy2(pdf_path, target)
+        return {"ok": True, "copied": True, "path": str(target)}
+    except Exception as exc:  # noqa: BLE001 - return tool-friendly diagnostics
+        return {"ok": False, "copied": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+def _resolve_desktop_dir() -> Path | None:
+    configured = os.environ.get("MEETING_MINUTES_DESKTOP_DIR") or os.environ.get("AGENT_DESKTOP_DIR")
+    if configured:
+        return Path(configured).expanduser()
+
+    if PROJECT_ROOT.parent.name.lower() == "desktop" or PROJECT_ROOT.parent.name == "桌面":
+        return PROJECT_ROOT.parent
+
+    for name in ("Desktop", "桌面"):
+        candidate = Path.home() / name
+        if candidate.exists() and candidate.is_dir():
+            return candidate
+    return None
 
 
 def _resolve_typst_bin() -> str | None:

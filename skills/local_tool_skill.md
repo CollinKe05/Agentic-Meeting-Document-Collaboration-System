@@ -7,7 +7,7 @@
 - `LIST_SKILLS`：列出 `skills/` 目录下的 Markdown 技能文件。
 - `SAFE_READ_TEXT_FILE`：读取 `workspace_files/` 下的文本文件。
 - `SAFE_WRITE_TEXT_FILE`：写入 `workspace_files/` 下的文本文件。
-- `PARSE_DOCUMENT_WITH_OCR_PC`：使用 OCR/PaddleOCR 解析 PDF 或图片。
+- `PARSE_DOCUMENT_WITH_OCR_PC`：使用 OCR/PaddleOCR 解析 PDF 或图片；可通过 `AGENT_OCR_BACKEND=syss` 切到 RDK BPU + syss 流水线。
 - `READ_LAST_OCR_RESULT`：读取最近一次 OCR 解析生成的 Markdown，用于追问和继续总结。
 - `FORMAT_MEETING_MINUTES`：把会议转写整理成结构化会议纪要，并生成 `.json`、`.md`、`.typ`，在安装 `typst` 时生成 `.pdf`。
 

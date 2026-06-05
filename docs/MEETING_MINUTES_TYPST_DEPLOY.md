@@ -47,7 +47,7 @@ FORMAT_MEETING_MINUTES
 请将会议转写文件 meeting_2026-06-01_20-32-10.txt 格式化排版成会议纪要，使用 Typst 模板并导出 PDF。
 ```
 
-注意：会议转写文件必须位于 `workspace_files/` 下，不能传绝对路径。
+注意：会议转写文件必须位于 `workspace_files/` 下，不能传绝对路径。会议记录结束后会自动归档到 `workspace_files/meeting_records/`，右侧“会议纪要导出”会直接列出这个目录。
 
 ## 2. Windows 开发，Linux 运行
 
@@ -531,3 +531,58 @@ http://127.0.0.1:7860
 ```text
 请将会议转写文件 meeting_test.txt 格式化排版成会议纪要，使用 Typst 模板并导出 PDF。
 ```
+
+## 11. 当前会议纪要交互规则
+
+会议按钮 `OFF` 结束录音后，接口会返回：
+
+```text
+transcript_path                原始 ASR 转写路径
+workspace_transcript_path       归档到 workspace_files/meeting_records 的绝对路径
+workspace_transcript_relpath    可直接给 Agent 工具使用的相对路径
+transcript                      本次会议转写内容
+```
+
+右侧“会议纪要导出”不会再打开系统文件选择框，而是直接列出：
+
+```text
+workspace_files/meeting_records/
+```
+
+选中某条会议记录后，Agent 会提交：
+
+```text
+请将会议转写文件 meeting_records/xxx.txt 格式化排版成会议纪要，使用 Typst 模板并导出 PDF。
+```
+
+PDF 编译成功后会生成两份：
+
+```text
+workspace_files/meeting_outputs/.../minutes.pdf
+桌面/日期_会议标题.pdf
+```
+
+桌面路径查找顺序：
+
+```text
+1. MEETING_MINUTES_DESKTOP_DIR
+2. AGENT_DESKTOP_DIR
+3. 项目父目录如果就是 Desktop/桌面，则使用项目父目录
+4. 当前用户 HOME 下的 Desktop/桌面
+```
+
+会议纪要内容生成采用分部分生成：
+
+```text
+概览/重点内容
+议题与结论
+待办/风险/待确认
+```
+
+要求：
+
+- `key_points` 尽量至少 5 条。
+- 每个主要议题的 discussion 尽量至少 5 条。
+- 风险/待确认事项尽量至少 5 条。
+- 信息密度越高，条数自然增加。
+- 如果 ASR 信息不足，不编造，用“转写信息不足/需复核”说明缺口。

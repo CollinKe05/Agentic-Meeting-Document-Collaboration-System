@@ -384,6 +384,10 @@
           requestMeetingSummary();
           return;
         }
+        if (feature.action === 'meeting-minutes-export') {
+          requestMeetingMinutesExport(feature);
+          return;
+        }
         if (feature.needsFile) {
           pendingFeature = feature;
           fileInput.click();
@@ -493,8 +497,19 @@
       if (meetingRunning) {
         const payload = await postJson('/api/meeting/stop', {});
         updateMeetingUi(payload.meeting || {});
-        const transcript = (payload.meeting && payload.meeting.transcript) || '';
-        appendMessage('agent', transcript ? `会议记录已结束：\n\n${transcript}` : '会议记录已结束，但没有读取到转写内容。');
+        const meeting = payload.meeting || {};
+        const transcript = meeting.transcript || '';
+        const workspacePath = meeting.workspace_transcript_relpath || '';
+        const rawPath = meeting.transcript_path || '';
+        const pathLines = [
+          workspacePath ? `工作区会议记录：${workspacePath}` : '',
+          meeting.workspace_transcript_path ? `工作区绝对路径：${meeting.workspace_transcript_path}` : '',
+          rawPath ? `原始 ASR 文件：${rawPath}` : ''
+        ].filter(Boolean).join('\n');
+        const message = transcript
+          ? `会议记录已结束。\n${pathLines ? `\n${pathLines}\n` : ''}\n转写内容：\n\n${transcript}`
+          : `会议记录已结束，但没有读取到转写内容。${pathLines ? `\n\n${pathLines}` : ''}`;
+        appendMessage('agent', message);
       } else {
         const payload = await postJson('/api/meeting/start', {});
         updateMeetingUi(payload.meeting || {});
@@ -503,6 +518,71 @@
     } catch (error) {
       appendMessage('error', `会议控制失败：${error.message}`);
     }
+  }
+
+  async function requestMeetingMinutesExport(feature) {
+    try {
+      const response = await fetch('/api/meeting/records?limit=50');
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || '读取会议记录列表失败');
+      const records = payload.records || [];
+      if (!records.length) {
+        appendMessage('error', '还没有可导出的会议记录。请先结束一次会议记录，系统会把转写保存到 workspace_files/meeting_records/。');
+        return;
+      }
+      showMeetingRecordPicker(records, feature);
+    } catch (error) {
+      appendMessage('error', `会议纪要导出失败：${error.message}`);
+    }
+  }
+
+  function showMeetingRecordPicker(records, feature) {
+    const old = document.getElementById('meeting-record-picker');
+    if (old) old.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'meeting-record-picker';
+    overlay.className = 'fixed inset-0 z-[70] bg-black/35 flex items-center justify-center p-4';
+    overlay.innerHTML = `
+      <div class="w-full max-w-2xl max-h-[80vh] bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden">
+        <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-semibold text-gray-800">选择会议记录</h3>
+            <p class="text-[11px] text-gray-500 mt-0.5">来源目录：workspace_files/meeting_records/</p>
+          </div>
+          <button id="meeting-record-picker-close" class="px-2 py-1 rounded border border-gray-200 text-xs text-gray-500 hover:bg-gray-50">关闭</button>
+        </div>
+        <div class="p-3 overflow-y-auto max-h-[60vh] space-y-2">
+          ${records.map((record, index) => `
+            <button data-record-index="${index}" class="w-full text-left p-3 rounded-lg border border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition-colors">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="text-xs font-medium text-gray-800 truncate">${escapeHtml(record.name)}</div>
+                  <div class="text-[11px] text-gray-500 mt-1 break-all">${escapeHtml(record.path)}</div>
+                </div>
+                <div class="text-[10px] text-gray-400 shrink-0">${escapeHtml(record.updated_at || '')}</div>
+              </div>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.querySelector('#meeting-record-picker-close').addEventListener('click', close);
+    overlay.addEventListener('click', event => {
+      if (event.target === overlay) close();
+    });
+    overlay.querySelectorAll('[data-record-index]').forEach(button => {
+      button.addEventListener('click', () => {
+        const record = records[Number(button.dataset.recordIndex)];
+        close();
+        const relPath = record.path;
+        const prompt = feature.prompt.replaceAll('{path}', relPath);
+        submitTask(prompt, [{ name: record.name, path: relPath }]);
+      });
+    });
   }
 
   async function requestMeetingSummary() {
