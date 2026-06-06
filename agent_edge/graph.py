@@ -106,6 +106,7 @@ def planner_node(state: AgentState) -> Dict[str, Any]:
     ensure_demo_assets()
     skills_index = execute_local_action("READ_SKILL", "skills_index.md")
     conversation_context = state.get("conversation_context", "")
+    context_pack = state.get("context_pack", "")
 
     deterministic_plan = _deterministic_plan(state["user_input"])
     if deterministic_plan:
@@ -129,6 +130,8 @@ def planner_node(state: AgentState) -> Dict[str, Any]:
 <recent_conversation>
 {conversation_context or "无"}
 </recent_conversation>
+
+{context_pack}
 
 <skills_index>
 {skills_index}
@@ -269,15 +272,48 @@ def build_agent_graph():
     return builder.compile()
 
 
-def run_agent(user_input: str, *, task_id: str = "", conversation_context: str = "") -> AgentState:
+def run_agent(
+    user_input: str,
+    *,
+    task_id: str = "",
+    conversation_context: str = "",
+    context_pack: str = "",
+    context_transition: dict[str, Any] | None = None,
+) -> AgentState:
+    if context_pack and _should_answer_from_context(user_input):
+        return {
+            "user_input": user_input,
+            "task_id": task_id,
+            "conversation_context": conversation_context,
+            "context_pack": context_pack,
+            "context_transition": context_transition or {},
+            "plan": [],
+            "past_steps": [],
+            "current_response": llm_call(
+                _build_direct_chat_prompt(
+                    user_input,
+                    conversation_context=conversation_context,
+                    context_pack=context_pack,
+                )
+            ),
+        }
+
     if _should_direct_chat(user_input):
         return {
             "user_input": user_input,
             "task_id": task_id,
             "conversation_context": conversation_context,
+            "context_pack": context_pack,
+            "context_transition": context_transition or {},
             "plan": [],
             "past_steps": [],
-            "current_response": llm_call(_build_direct_chat_prompt(user_input, conversation_context=conversation_context)),
+            "current_response": llm_call(
+                _build_direct_chat_prompt(
+                    user_input,
+                    conversation_context=conversation_context,
+                    context_pack=context_pack,
+                )
+            ),
         }
 
     app = build_agent_graph()
@@ -285,6 +321,8 @@ def run_agent(user_input: str, *, task_id: str = "", conversation_context: str =
         "user_input": user_input,
         "task_id": task_id,
         "conversation_context": conversation_context,
+        "context_pack": context_pack,
+        "context_transition": context_transition or {},
         "plan": [],
         "past_steps": [],
         "current_response": "",
@@ -311,7 +349,20 @@ def _should_direct_chat(user_input: str) -> bool:
     return not any(keyword in lowered for keyword in TOOL_INTENT_KEYWORDS)
 
 
-def _build_direct_chat_prompt(user_input: str, *, conversation_context: str = "") -> str:
+def _build_direct_chat_prompt(user_input: str, *, conversation_context: str = "", context_pack: str = "") -> str:
+    if context_pack:
+        return f"""
+<recent_conversation>
+{conversation_context or "无"}
+</recent_conversation>
+
+{context_pack}
+
+如果 focus_context 存在，当前问题默认只基于 focus_context 中的材料回答；不要混入其他 OCR、会议或文档内容。若 focus_context 不足以回答，请直接说明缺少信息。
+如果 recent_conversation 中的信息和当前问题有关，可以参考它延续对话；如果无关，请忽略。
+你是一个运行在本地离线环境中的边缘端 Agent。请直接用中文自然回复用户，保持简洁、友好、可执行。
+用户输入：{user_input}
+""".strip()
     return f"""
 <recent_conversation>
 {conversation_context or "无"}
@@ -328,6 +379,16 @@ def _build_direct_chat_prompt(user_input: str, *, conversation_context: str = ""
 用户输入：
 {user_input}
 """.strip()
+
+
+def _should_answer_from_context(user_input: str) -> bool:
+    lowered = user_input.lower()
+    if "<attachments>" in lowered:
+        return False
+    if _extract_workspace_file_path({}, user_input):
+        return False
+    tool_intents = {"解析", "导出", "生成文件", "开始会议", "写入", "保存", "parse", "export"}
+    return not any(keyword in lowered or keyword in user_input for keyword in tool_intents)
 
 
 def _build_executor_prompt(current_task: dict[str, Any], recent_history: list[tuple]) -> str:

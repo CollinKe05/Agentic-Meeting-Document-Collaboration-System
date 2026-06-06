@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 from typing import Any
 
+from . import context_store
 from . import task_store
 from .paths import WORKSPACE_DIR, safe_child_path
 
@@ -35,6 +36,7 @@ def record_ocr_result(*, task_id: str, payload: dict[str, Any], source_path: str
         name=Path(rel_markdown).name,
         metadata=metadata,
     )
+    _record_ocr_context(task_id=task_id, payload=payload, source_path=source_path, metadata=metadata)
 
 
 def read_latest_ocr_result(args: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -89,6 +91,63 @@ def latest_ocr_result_exists() -> bool:
         return _latest_markdown_from_outputs().is_file()
     except FileNotFoundError:
         return False
+
+
+def _record_ocr_context(*, task_id: str, payload: dict[str, Any], source_path: str, metadata: dict[str, Any]) -> None:
+    markdown_path = str(payload.get("markdown_path") or "")
+    if not markdown_path:
+        return
+    rel_markdown = str(metadata.get("markdown_path") or _to_workspace_relative(markdown_path))
+    title_source = Path(source_path).name or Path(rel_markdown).stem
+    context_id = f"ocr_{task_id}"
+    preview = str(payload.get("markdown_preview") or "")
+    if not preview:
+        try:
+            preview = Path(markdown_path).read_text(encoding="utf-8", errors="replace")[:1200]
+        except Exception:
+            preview = ""
+
+    context = context_store.create_context(
+        kind="ocr",
+        title=f"{title_source} OCR 结果",
+        summary=_summary_from_text(preview),
+        source_path=source_path,
+        metadata={**metadata, "task_id": task_id},
+        context_id=context_id,
+    )
+    artifacts = {
+        "markdown": rel_markdown,
+        "content_list_v2": str(metadata.get("content_list_v2_path") or ""),
+        "blocks_json": str(metadata.get("blocks_json_path") or ""),
+        "images_dir": str(metadata.get("images_dir") or ""),
+        "source": source_path,
+    }
+    for artifact_type, path in artifacts.items():
+        if path:
+            context_store.add_artifact(context["id"], artifact_type, path, name=Path(path).name or artifact_type)
+
+    try:
+        markdown_text = Path(markdown_path).read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        markdown_text = preview
+    context_store.replace_chunks(context["id"], "ocr_block")
+    context_store.add_chunks(
+        context["id"],
+        "ocr_block",
+        context_store.split_text(markdown_text, max_chars=1400, overlap=120),
+        metadata={"source_path": source_path, "markdown_path": rel_markdown},
+    )
+    context_store.set_active_context(
+        focus_state="OCR_ACTIVE",
+        context_id=context["id"],
+        mode="soft",
+        entered_reason="ocr_completed",
+        expires_after_turns=4,
+    )
+
+
+def _summary_from_text(text: str, *, max_chars: int = 300) -> str:
+    return " ".join(str(text or "").split())[:max_chars]
 
 
 def _latest_markdown_from_outputs() -> Path:

@@ -1,0 +1,1331 @@
+/* frontend/css/style.css */
+:root {
+    --primary-color: #007bff;
+    --primary-hover-color: #0056b3;
+    --secondary-color: #6c757d;
+    --background-color: #f8f9fa;
+    --card-background-color: #ffffff;
+    --text-color: #212529;
+    --border-color: #dee2e6;
+    --success-color: #28a745;
+    --warning-color: #ffc107;
+    --danger-color: #dc3545;
+    --priority-high-color: var(--danger-color);
+    --priority-medium-color: var(--warning-color);
+    --priority-low-color: var(--success-color);
+    --completed-bg-color: #e2e3e5;
+    --completed-text-color: var(--secondary-color);
+}
+
+/* Basic Reset & Body Styling */
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6;
+    background-color: var(--background-color);
+    color: var(--text-color);
+    padding: 1rem;
+}
+
+/* 头部布局调整 - 使标题和控件居中 */
+header {
+    text-align: center;
+    margin-bottom: 1.5rem;
+}
+
+.header-center {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto;
+    max-width: 800px;
+}
+
+header h1 {
+    margin: 0 0 0.5rem 0;  /* 减少间距 */
+    font-size: 1.8rem;
+}
+
+.header-controls {
+    margin: 0.7rem 0;
+    display: flex;
+    gap: 0.7rem;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.header-controls button {
+    padding: 0.5rem 1.5rem;
+    font-size: 0.9rem;
+    font-weight: bold;
+    border-radius: 50px;
+    border: none;
+    color: white;
+    cursor: pointer;
+    transition: all 0.3s ease;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
+    position: relative;
+    overflow: hidden;
+}
+
+#refresh-btn {
+    background: linear-gradient(90deg, #19873d, #146c32);
+    padding: 0.5rem 1.5rem;
+    position: relative;
+    order: -1; /* 将刷新按钮放在最前面 */
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    letter-spacing: 0.5px;
+    font-weight: 600;
+    overflow: hidden;
+    box-shadow: 0 4px 10px rgba(20, 108, 50, 0.25);
+    border-radius: 50px;
+    transition: all 0.3s ease;
+}
+
+/* 移除图标 */
+#refresh-btn::after {
+    display: none;
+}
+
+#refresh-btn:hover {
+    background: linear-gradient(90deg, #146c32, #19873d);
+    box-shadow: 0 4px 8px rgba(20, 108, 50, 0.3);
+    transform: translateY(-2px);
+    color: #ffffff;
+}
+
+#refresh-btn:hover::before {
+    display: none;
+}
+
+/* 移除悬停时的旋转动画 */
+/* #refresh-btn:hover::after {
+    animation: spin 1s infinite linear;
+} */
+
+#refresh-btn.refreshing {
+    background: linear-gradient(90deg, #146c32, #0e5c26);
+    pointer-events: none;
+    box-shadow: 0 3px 10px rgba(20, 108, 50, 0.2) inset;
+}
+
+#refresh-btn.refreshing::after {
+    display: none;
+}
+
+#refresh-btn.refreshing::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: inherit;
+}
+
+#refresh-btn:active {
+    transform: scale(0.98);
+    box-shadow: 0 1px 3px rgba(20, 108, 50, 0.15);
+}
+
+@keyframes pulse-refresh {
+    0% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0.6); }
+    70% { box-shadow: 0 0 0 10px rgba(40, 167, 69, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(40, 167, 69, 0); }
+}
+
+@keyframes spin {
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* 添加图标的脉冲动画，替代旋转 */
+@keyframes pulse-icon {
+    0% { transform: translateY(-50%) scale(1); }
+    50% { transform: translateY(-50%) scale(1.2); }
+    100% { transform: translateY(-50%) scale(1); }
+}
+
+/* 添加刷新时的提示样式 */
+.toast {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 25px;
+    background-color: rgba(0, 0, 0, 0.85);
+    color: white;
+    border-radius: 30px;
+    z-index: 10000;
+    font-size: 14px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25);
+    transition: all 0.3s ease;
+    backdrop-filter: blur(5px);
+    border-left: 4px solid var(--success-color);
+    animation: toastAppear 0.3s ease;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 200px;
+    justify-content: center;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    letter-spacing: 0.3px;
+    font-weight: 500;
+}
+
+.toast-icon {
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.toast-text {
+    line-height: 1.2;
+}
+
+@keyframes toastAppear {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+.loading-toast {
+    background-color: rgba(20, 108, 50, 0.95);
+    border-left: 4px solid #fff;
+    box-shadow: 0 4px 20px rgba(20, 108, 50, 0.4);
+}
+
+.loading-toast::before {
+    content: '';
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-top-color: white;
+    margin-right: 8px;
+    animation: spin 1s infinite linear;
+}
+
+.success-toast {
+    background-color: rgba(20, 108, 50, 0.95);
+    border-left: 4px solid #fff;
+    box-shadow: 0 4px 20px rgba(20, 108, 50, 0.4);
+}
+
+.success-toast .toast-icon {
+    color: white;
+    font-size: 18px;
+    font-weight: bold;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    background-color: rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+}
+
+.error-toast {
+    background-color: rgba(220, 53, 69, 0.95);
+    border-left: 4px solid #fff;
+    box-shadow: 0 4px 20px rgba(220, 53, 69, 0.4);
+}
+
+.fade-out {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-20px);
+}
+
+#clock {
+    font-size: 0.9rem;
+    color: var(--secondary-color);
+    margin-top: 0.3rem;
+}
+
+/* 高级动画与流畅交互体验增强 */
+
+/* 页面整体淡入 */
+body {
+    animation: fadeInBody 0.7s cubic-bezier(.4,0,.2,1);
+}
+@keyframes fadeInBody {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+/* 卡片弹入动画 */
+.card {
+    animation: cardPopIn 0.7s cubic-bezier(.4,0,.2,1);
+}
+@keyframes cardPopIn {
+    from { opacity: 0; transform: translateY(30px) scale(0.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* 按钮波纹动效 */
+button, .show-form-btn, .view-switcher button {
+    position: relative;
+    overflow: hidden;
+}
+button:active::after, .show-form-btn:active::after, .view-switcher button:active::after {
+    content: '';
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 0; height: 0;
+    background: rgba(0,123,255,0.18);
+    border-radius: 100%;
+    transform: translate(-50%, -50%);
+    animation: ripple 0.5s linear;
+    pointer-events: none;
+    z-index: 2;
+}
+@keyframes ripple {
+    to {
+        width: 200px;
+        height: 200px;
+        opacity: 0;
+    }
+}
+
+/* 表单弹出缩放动画 */
+#task-form-section {
+    transition: box-shadow 0.3s, border 0.3s, opacity 0.3s, transform 0.3s;
+    opacity: 0;
+    transform: scale(0.98) translateY(20px);
+    pointer-events: none;
+    width: 100%;
+    margin-top: 1.5rem;
+    margin-bottom: 1rem;
+}
+#task-form-section[style*='block'] {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+    pointer-events: auto;
+}
+
+/* 日历单元格悬浮动画 */
+.calendar-table td {
+    transition: box-shadow 0.2s, background 0.2s, transform 0.18s;
+    cursor: pointer;
+}
+.calendar-table td:hover {
+    background: #e3f0ff;
+    box-shadow: 0 2px 12px rgba(0,123,255,0.08);
+    transform: scale(1.04);
+    z-index: 2;
+}
+body.dark-theme .calendar-table td:hover {
+    background: #23272a;
+}
+
+/* 任务卡片悬浮动画 */
+.calendar-task {
+    transition: box-shadow 0.18s, background 0.18s, color 0.18s, transform 0.18s;
+}
+.calendar-task:hover {
+    background: #dbeafe;
+    color: #0056b3;
+    box-shadow: 0 2px 8px rgba(0,123,255,0.10);
+    transform: scale(1.04);
+    z-index: 3;
+}
+body.dark-theme .calendar-task:hover {
+    background: #1a1d21;
+    color: #4dabf7;
+}
+
+/* 反馈舒适的弹窗动画 */
+@keyframes fadeInModal {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+/* 今日标注动画 */
+.today-label {
+    display: inline-block;
+    background: #007bff;
+    color: #fff;
+    border-radius: 8px;
+    padding: 0 8px;
+    margin-left: 6px;
+    font-size: 0.8em;
+    font-weight: bold;
+    animation: pulseToday 1.2s infinite alternate;
+}
+@keyframes pulseToday {
+    from { box-shadow: 0 0 0 0 #007bff44; }
+    to { box-shadow: 0 0 8px 4px #007bff44; }
+}
+
+/* 日历今日信息动画 */
+.calendar-today-info {
+    margin: 0.5rem 0 1rem 0;
+    font-size: 1.1em;
+    color: #007bff;
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    animation: fadeInDown 0.5s;
+}
+.today-dot {
+    display: inline-block;
+    width: 12px; height: 12px;
+    background: #007bff;
+    border-radius: 50%;
+    margin-right: 6px;
+    box-shadow: 0 0 8px 2px #007bff55;
+    animation: pulseToday 1.2s infinite alternate;
+}
+
+/* 列表项滑入动画 */
+.task-item {
+    animation: fadeInListItem 0.5s cubic-bezier(.4,0,.2,1);
+}
+@keyframes fadeInListItem {
+    from { opacity: 0; transform: translateY(20px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* 主布局美化 */
+.main-flex {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    width: 100%;
+    max-width: 800px;
+    margin: 0 auto;
+    min-height: 70vh;
+}
+
+.content-area {
+    flex: 1 1 0%;
+    min-width: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.form-card {
+    background: linear-gradient(135deg, #f8fafc 60%, #e3f0ff 100%);
+    border-radius: 16px;
+    box-shadow: 0 6px 32px rgba(0,123,255,0.07);
+    padding: 2.2rem 2rem 1.5rem 2rem;
+    margin-bottom: 1.5rem;
+    border: none;
+    animation: fadeIn 0.7s;
+}
+.form-card h2 {
+    font-size: 1.3rem;
+    color: var(--primary-color);
+    margin-bottom: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+}
+.form-group {
+    margin-bottom: 1.1rem;
+}
+.form-row {
+    display: flex;
+    gap: 1rem;
+}
+.form-row .form-group {
+    flex: 1 1 0%;
+    margin-bottom: 0;
+}
+.form-group label {
+    font-weight: bold;
+    color: var(--primary-color);
+    margin-bottom: 0.3rem;
+    display: block;
+}
+.form-group .required {
+    color: var(--danger-color);
+    font-size: 1em;
+}
+#task-form input[type="text"],
+#task-form textarea,
+#task-form select,
+#task-form input[type="datetime-local"],
+#task-form .date-input,
+#task-form .time-input {
+    width: 100%;
+    padding: 0.7rem 0.9rem;
+    border: 1.5px solid var(--border-color);
+    border-radius: 6px;
+    font-size: 1rem;
+    background: #fafdff;
+    margin-top: 0.2rem;
+    transition: border 0.2s, box-shadow 0.2s;
+}
+#task-form input[type="text"]:focus,
+#task-form textarea:focus,
+#task-form select:focus,
+#task-form input[type="datetime-local"]:focus,
+#task-form .date-input:focus,
+#task-form .time-input:focus {
+    border: 1.5px solid var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(0,123,255,0.08);
+    outline: none;
+}
+#task-form .date-input:focus,
+#task-form .time-input:focus {
+    outline: none;
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.15);
+}
+#task-form textarea {
+    min-height: 60px;
+    resize: vertical;
+}
+.form-actions {
+    display: flex;
+    gap: 1rem;
+    margin-top: 1.2rem;
+    justify-content: flex-end;
+}
+#save-task-btn {
+    background: linear-gradient(90deg, var(--primary-color) 60%, #4dabf7 100%);
+    color: #fff;
+    font-weight: bold;
+    border: none;
+    border-radius: 6px;
+    padding: 0.7rem 2.2rem;
+    font-size: 1.1rem;
+    box-shadow: 0 2px 8px rgba(0,123,255,0.08);
+    transition: background 0.2s, transform 0.2s;
+}
+#save-task-btn:hover {
+    background: var(--primary-hover-color);
+    transform: scale(1.04);
+}
+#cancel-edit-btn {
+    background: #e9ecef;
+    color: #333;
+    border-radius: 6px;
+    border: none;
+    padding: 0.7rem 1.5rem;
+    font-size: 1.05rem;
+    transition: background 0.2s, color 0.2s;
+}
+#cancel-edit-btn:hover {
+    background: #dee2e6;
+    color: var(--primary-color);
+}
+
+@keyframes fadeInLeft {
+    from { opacity: 0; transform: translateX(-40px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+
+/* 让主内容和日历更美观居中，卡片有阴影和动画 */
+main {
+    max-width: 900px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1.5rem;
+}
+.card {
+    width: 100%;
+    box-sizing: border-box;
+    box-shadow: 0 4px 24px rgba(0,0,0,0.08);
+    animation: fadeIn 0.7s;
+    margin-bottom: 0;
+}
+
+/* 让日历表格自适应且居中 */
+.calendar-table {
+    width: 100%;
+    max-width: 700px;
+    margin: 0 auto;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--card-background-color);
+}
+.calendar-table th, .calendar-table td {
+    min-width: 60px;
+    min-height: 70px;
+    text-align: left;
+    padding: 6px 8px;
+    font-size: 1em;
+}
+
+/* 让添加任务表单有动画和高亮 */
+#task-form-section {
+    transition: box-shadow 0.3s, border 0.3s;
+    border: 2px solid transparent;
+}
+#task-form-section:focus-within {
+    border: 2px solid var(--primary-color);
+    box-shadow: 0 0 0 4px rgba(0,123,255,0.08);
+    animation: formPop 0.4s;
+}
+@keyframes formPop {
+    0% { transform: scale(0.98); }
+    60% { transform: scale(1.03); }
+    100% { transform: scale(1); }
+}
+
+/* 提交按钮动效 */
+#save-task-btn {
+    transition: background 0.2s, transform 0.2s;
+}
+#save-task-btn:active {
+    transform: scale(0.96);
+    background: var(--primary-hover-color);
+}
+
+/* Button Styling */
+button {
+    padding: 0.75rem 1.5rem;
+    font-size: 1rem;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+    margin-right: 0.5rem; /* Spacing between buttons */
+}
+button:last-child {
+    margin-right: 0;
+}
+
+#save-task-btn {
+    background-color: var(--primary-color);
+    color: white;
+}
+#save-task-btn:hover {
+    background-color: var(--primary-hover-color);
+}
+
+#cancel-edit-btn,
+.task-actions .edit-btn {
+    background-color: var(--secondary-color);
+    color: white;
+}
+ #cancel-edit-btn:hover,
+.task-actions .edit-btn:hover {
+    background-color: #5a6268;
+}
+
+
+.task-actions .delete-btn {
+    background-color: var(--danger-color);
+    color: white;
+}
+.task-actions .delete-btn:hover {
+     background-color: #c82333;
+}
+
+ .task-actions .complete-btn {
+    background-color: var(--success-color);
+    color: white;
+}
+ .task-actions .complete-btn:hover {
+     background-color: #218838;
+ }
+ .task-item.completed .task-actions .complete-btn {
+     background-color: var(--warning-color); /* Yellow/Orange for undo */
+     color: #333;
+ }
+  .task-item.completed .task-actions .complete-btn:hover {
+     background-color: #e0a800;
+ }
+
+
+/* Task List Styling */
+#task-list {
+    list-style: none;
+    padding: 0;
+}
+
+.task-item {
+    background-color: var(--card-background-color);
+    padding: 1rem;
+    margin-bottom: 1rem;
+    border-radius: 5px;
+    border: 1px solid var(--border-color);
+    border-left-width: 5px; /* For priority indicator */
+    display: flex;
+    flex-wrap: wrap; /* Allow wrapping on small screens */
+    justify-content: space-between;
+    align-items: center;
+    transition: background-color 0.3s ease;
+}
+
+.task-item:hover {
+    background-color: #f1f1f1; /* Slight hover effect */
+}
+
+
+.task-item.completed {
+    background-color: var(--completed-bg-color);
+    border-color: #ced4da;
+}
+
+.task-item.completed .task-details strong,
+.task-item.completed .task-details p {
+    text-decoration: line-through;
+    color: var(--completed-text-color);
+}
+
+
+.task-item .task-details {
+    flex-grow: 1;
+    margin-right: 1rem; /* Space between details and actions */
+    word-break: break-word; /* Prevent long words from overflowing */
+}
+.task-details strong {
+    font-size: 1.1rem;
+    display: block; /* Ensure title takes its own line */
+    margin-bottom: 0.25rem;
+}
+.task-details p { /* Description */
+    margin: 0.5rem 0;
+    font-size: 0.9rem;
+    color: #555;
+}
+.task-details small { /* Meta info */
+    font-size: 0.8rem;
+    color: var(--secondary-color);
+    display: block; /* Ensure meta info is below description */
+    margin-top: 0.5rem;
+}
+
+
+.task-item .task-actions {
+    display: flex;
+    flex-shrink: 0; /* Prevent actions from shrinking */
+    margin-top: 0.5rem; /* Add space above buttons if they wrap */
+}
+
+.task-actions button {
+    padding: 0.4rem 0.8rem; /* Smaller buttons for actions */
+    font-size: 0.85rem;
+    margin-left: 0.5rem;
+}
+ .task-actions button:first-child {
+    margin-left: 0;
+}
+
+
+/* Priority Colors */
+.task-item.priority-高 { border-left-color: var(--priority-high-color); }
+.task-item.priority-中 { border-left-color: var(--priority-medium-color); }
+.task-item.priority-低 { border-left-color: var(--priority-low-color); }
+
+/* Placeholder/Error Styling */
+.placeholder, .error {
+    text-align: center;
+    color: var(--secondary-color);
+    padding: 2rem;
+    font-style: italic;
+}
+.error {
+    color: var(--danger-color);
+    font-weight: bold;
+}
+
+/* 日期时间选择器增强样式 */
+.date-time-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 5px;
+    width: 100%;
+}
+.date-input {
+    flex: 2.2;
+    position: relative;
+    min-width: 160px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    padding-left: 10px;
+    border: 1px solid #dee2e6;
+}
+.date-input:hover {
+    box-shadow: 0 4px 10px rgba(0, 123, 255, 0.15);
+    border-color: rgba(0, 123, 255, 0.3);
+}
+.time-input {
+    flex: 1;
+    position: relative;
+    min-width: 100px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+    padding-left: 10px;
+    border: 1px solid #dee2e6;
+}
+.date-helper-text {
+    font-size: 0.85em;
+    color: var(--secondary-color);
+    margin-top: 6px;
+    margin-left: 2px;
+}
+.clear-date-btn {
+    padding: 0.6rem 0.8rem;
+    background: #f8f9fa;
+    border: 1.5px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.3s;
+    height: calc(100% - 0.2rem);
+    margin-top: 0.2rem;
+    font-size: 0.9rem;
+    font-weight: 500;
+    color: var(--secondary-color);
+    display: flex;
+    align-items: center;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+.clear-date-btn:hover {
+    background: #e9ecef;
+    color: var(--danger-color);
+    border-color: var(--danger-color);
+    transform: scale(1.03);
+    box-shadow: 0 4px 8px rgba(220, 53, 69, 0.2);
+}
+/* 日期选择器通用样式 */
+.datepicker-container {
+    position: absolute;
+    z-index: 100;
+    background: white;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.18);
+    width: 500px;
+    padding: 20px;
+    margin-top: 10px;
+    user-select: none;
+    display: none;
+    transition: all 0.3s ease;
+    transform-origin: top center;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    opacity: 0;
+}
+.datepicker-container.visible {
+    opacity: 1;
+    display: block;
+    animation: datePickerFadeIn 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+}
+.datepicker-container::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 20px;
+    width: 16px;
+    height: 16px;
+    background: inherit;
+    border-left: 1px solid var(--border-color);
+    border-top: 1px solid var(--border-color);
+    transform: rotate(45deg);
+    z-index: -1;
+}
+@keyframes datePickerFadeIn {
+    from { opacity: 0; transform: translateY(-15px) scale(0.93); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes hoverPulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.05); }
+    100% { transform: scale(1); }
+}
+.datepicker-calendar td button.today:hover {
+    animation: hoverPulse 1s infinite;
+}
+.datepicker-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 18px;
+    border-bottom: 1px solid rgba(222, 226, 230, 0.3);
+    padding-bottom: 12px;
+}
+.datepicker-month-year {
+    font-weight: 600;
+    font-size: 1.2em;
+    color: var(--primary-color);
+    text-shadow: 0 1px 0 rgba(255,255,255,0.7);
+    letter-spacing: 0.5px;
+}
+.datepicker-nav {
+    display: flex;
+    gap: 12px;
+}
+.datepicker-nav button {
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 50%;
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    font-size: 1.1em;
+    padding: 0;
+    transition: all 0.25s;
+    box-shadow: 0 3px 8px rgba(0,123,255,0.25);
+}
+.datepicker-nav button:hover {
+    background: var(--primary-hover-color);
+    transform: scale(1.15);
+    box-shadow: 0 4px 10px rgba(0,123,255,0.35);
+}
+.datepicker-calendar {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+}
+.datepicker-calendar th {
+    font-weight: 500;
+    color: var(--secondary-color);
+    text-align: center;
+    padding: 8px;
+    font-size: 0.9em;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.datepicker-calendar td {
+    text-align: center;
+    padding: 5px;
+}
+.datepicker-calendar td button {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.25s;
+    font-size: 0.95em;
+    font-weight: 500;
+    color: var(--text-color);
+    position: relative;
+    margin: 1px;
+}
+.datepicker-calendar td button:hover {
+    background: #e3f0ff;
+    transform: scale(1.12);
+    box-shadow: 0 3px 8px rgba(0,123,255,0.2);
+}
+.datepicker-calendar td button.selected {
+    background: var(--primary-color);
+    color: white;
+    font-weight: bold;
+    box-shadow: 0 4px 10px rgba(0,123,255,0.3);
+    transform: scale(1.05);
+}
+.datepicker-calendar td button.today {
+    border: 2px solid var(--primary-color);
+    font-weight: bold;
+    color: var(--primary-color);
+    position: relative;
+}
+.datepicker-calendar td button.today::after {
+    content: '';
+    position: absolute;
+    bottom: 2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 4px;
+    height: 4px;
+    border-radius: 50%;
+    background-color: var(--primary-color);
+}
+.datepicker-calendar td button.out-of-month {
+    color: var(--border-color);
+    opacity: 0.6;
+    transform: scale(0.9);
+}
+.datepicker-footer {
+    margin-top: 16px;
+    display: flex;
+    justify-content: center;
+    border-top: 1px solid rgba(222, 226, 230, 0.3);
+    padding-top: 15px;
+}
+.datepicker-footer button {
+    background: var(--primary-color);
+    color: white;
+    border: none;
+    border-radius: 20px;
+    padding: 8px 18px;
+    cursor: pointer;
+    transition: all 0.25s;
+    font-weight: 600;
+    font-size: 0.95em;
+    box-shadow: 0 3px 8px rgba(0,123,255,0.25);
+}
+.datepicker-footer button:hover {
+    background: var(--primary-hover-color);
+    transform: scale(1.08);
+    box-shadow: 0 5px 12px rgba(0,123,255,0.35);
+}
+/* 响应式调整 */
+@media (max-width: 480px) {
+    .date-time-container {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .date-input, .time-input {
+        width: 100%;
+        margin-bottom: 10px;
+    }
+    .datepicker-container {
+        width: 95%;
+        max-width: 330px;
+        left: 50% !important;
+        transform: translateX(-50%);
+    }
+    .datepicker-container.visible {
+        transform: translateX(-50%) translateY(0) scale(1);
+    }
+}
+/* 暗色主题适配 */
+body.dark-theme .datepicker-container {
+    background: var(--card-background-color);
+    border-color: var(--border-color);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+}
+body.dark-theme .datepicker-calendar td button {
+    color: var(--text-color);
+}
+body.dark-theme .datepicker-calendar td button:hover {
+    background: rgba(0, 123, 255, 0.2);
+    box-shadow: 0 3px 8px rgba(0,123,255,0.25);
+}
+body.dark-theme .datepicker-calendar td button.selected {
+    background: var(--primary-color);
+    color: white;
+    box-shadow: 0 4px 10px rgba(0,123,255,0.4);
+}
+body.dark-theme .datepicker-calendar td button.today {
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+body.dark-theme {
+    --background-color: #181a1b;
+    --card-background-color: #23272a;
+    --text-color: #e9ecef;
+    --border-color: #444;
+    --secondary-color: #aaa;
+}
+body.dark-theme .calendar-table th,
+body.dark-theme .calendar-table td {
+    background: #23272a;
+    color: #e9ecef;
+}
+.calendar-header {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.5rem;
+    margin-bottom: 0.5rem;
+    animation: fadeInDown 0.5s;
+}
+.calendar-header button {
+    background: var(--primary-color);
+    color: #fff;
+    border: none;
+    border-radius: 4px;
+    padding: 0.3rem 1rem;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+}
+.calendar-header button:hover {
+    background: var(--primary-hover-color);
+    transform: scale(1.08);
+}
+#calendar-title {
+    font-size: 1.2rem;
+    font-weight: bold;
+    letter-spacing: 1px;
+    color: var(--primary-color);
+    transition: color 0.3s;
+}
+body.dark-theme #calendar-title {
+    color: var(--warning-color);
+}
+
+/* 月视图动效 */
+.calendar-table {
+    animation: fadeIn 0.6s;
+}
+.calendar-table td, .calendar-table th {
+    transition: background 0.3s, color 0.3s;
+}
+.calendar-table td.today {
+    background: #e3f0ff !important;
+    color: #007bff !important;
+    font-weight: bold;
+    /* 去除闪烁动画 */
+    animation: none !important;
+}
+
+/* 临近当天的任务高亮标注 */
+.calendar-task.near-today {
+    border: 2px solid #007bff;
+    background: #e6f7ff;
+    color: #0056b3;
+    position: relative;
+}
+.calendar-task.near-today::after {
+    content: '临近';
+    display: inline-block;
+    margin-left: 6px;
+    font-size: 0.75em;
+    color: #fff;
+    background: #007bff;
+    border-radius: 6px;
+    padding: 0 6px;
+    font-weight: bold;
+    vertical-align: middle;
+}
+
+.calendar-task {
+    margin: 2px 0;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 0.85em;
+    background: #f0f4fa;
+    color: #1a1a1a;
+    border-left: 4px solid var(--primary-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 500;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+    transition: background 0.2s, color 0.2s;
+}
+.calendar-task.priority-高 { border-left-color: var(--priority-high-color); background: #ffeaea; color: #b71c1c; }
+.calendar-task.priority-中 { border-left-color: var(--priority-medium-color); background: #fffbe6; color: #b8860b; }
+.calendar-task.priority-低 { border-left-color: var(--priority-low-color); background: #eaffea; color: #237804; }
+.calendar-task.completed {
+    text-decoration: line-through;
+    opacity: 0.7;
+    background: var(--completed-bg-color);
+    color: var(--secondary-color);
+}
+
+body.dark-theme .form-card,
+body.dark-theme #task-form-section {
+    background: linear-gradient(135deg, #23272a 60%, #1a1d21 100%);
+    box-shadow: 0 6px 32px rgba(0,123,255,0.10);
+}
+body.dark-theme #task-form input,
+body.dark-theme #task-form textarea,
+body.dark-theme #task-form select,
+body.dark-theme #task-form input[type="datetime-local"],
+body.dark-theme #task-form .date-input,
+body.dark-theme #task-form .time-input {
+    background: #23272a;
+    color: #e9ecef;
+    border-color: #444;
+}
+body.dark-theme #task-form input:focus,
+body.dark-theme #task-form textarea:focus,
+body.dark-theme #task-form select:focus,
+body.dark-theme #task-form input[type="datetime-local"]:focus,
+body.dark-theme #task-form .date-input:focus,
+body.dark-theme #task-form .time-input:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px rgba(0,123,255,0.18);
+}
+body.dark-theme #save-task-btn {
+    background: linear-gradient(90deg, #4dabf7 60%, #007bff 100%);
+    color: #fff;
+}
+body.dark-theme #save-task-btn:hover {
+    background: #0056b3;
+}
+body.dark-theme #cancel-edit-btn {
+    background: #343a40;
+    color: #e9ecef;
+}
+body.dark-theme #cancel-edit-btn:hover {
+    background: #23272a;
+    color: var(--primary-color);
+}
+body.dark-theme .clear-date-btn {
+    background: #343a40;
+    color: #e9ecef;
+    border-color: #555;
+}
+body.dark-theme .clear-date-btn:hover {
+    background: #23272a;
+    color: var(--danger-color);
+    border-color: var(--danger-color);
+}
+button, .view-switcher button {
+    transition: background 0.2s, color 0.2s, box-shadow 0.2s, transform 0.15s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+button:active, .view-switcher button:active {
+    transform: scale(0.96);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.10);
+}
+button:focus, .view-switcher button:focus {
+    outline: 2px solid var(--primary-color);
+    outline-offset: 2px;
+}
+#theme-toggle-btn {
+    background: linear-gradient(90deg, var(--primary-color), #4dabf7);
+}
+
+#theme-toggle-btn:hover {
+    background: linear-gradient(90deg, #4dabf7, var(--primary-color));
+    box-shadow: 0 4px 8px rgba(0, 123, 255, 0.3);
+    transform: translateY(-2px);
+}
+
+#theme-toggle-btn:active {
+    transform: scale(0.98);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+/* 全屏按钮样式 */
+#fullscreen-btn {
+    background: linear-gradient(90deg, #ff7043, #ff9800);
+}
+
+#fullscreen-btn:hover, #exit-fullscreen-btn:hover {
+    background: linear-gradient(90deg, #ff9800, #ff7043);
+    box-shadow: 0 4px 8px rgba(255, 122, 67, 0.3);
+    transform: translateY(-2px);
+}
+
+#fullscreen-btn:active, #exit-fullscreen-btn:active {
+    transform: scale(0.98);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+#exit-fullscreen-btn {
+    background: linear-gradient(90deg, #ff9800, #ff7043);
+}
+
+/* 刷新提示样式优化 */
+#fullscreen-btn:hover {
+    background: linear-gradient(90deg, #ff9800, #ff7043);
+    transform: scale(1.05);
+}
+#fullscreen-btn::after {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    top: 0;
+    left: 0;
+    background: rgba(255, 152, 0, 0.3);
+    border-radius: 50px;
+    z-index: -1;
+    animation: pulse-fullscreen 1.5s infinite;
+}
+@keyframes pulse-fullscreen {
+    0% { transform: scale(1); opacity: 0.8; }
+    50% { transform: scale(1.15); opacity: 0.2; }
+    100% { transform: scale(1); opacity: 0.8; }
+}
+
+#exit-fullscreen-btn {
+    border-radius: 50px;
+    padding: 0.5rem 1.5rem;
+    font-weight: bold;
+    background: linear-gradient(90deg, #607d8b, #78909c);
+    color: #fff;
+    border: none;
+}
+#exit-fullscreen-btn:hover {
+    background: linear-gradient(90deg, #78909c, #607d8b);
+}
+.view-switcher-and-add {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap; /* 允许在小屏幕上换行 */
+}
+
+.show-form-btn {
+    display: inline-block;
+    margin: 0;
+    padding: 0.6rem 1.2rem;
+    font-size: 1rem;
+    font-weight: bold;
+    color: var(--primary-color);
+    background: linear-gradient(90deg, #fafdff 60%, #e3f0ff 100%);
+    border: 2px dashed var(--primary-color);
+    border-radius: 12px;
+    cursor: pointer;
+    box-shadow: 0 2px 8px rgba(0,123,255,0.04);
+    transition: background 0.25s, color 0.25s, border 0.25s, box-shadow 0.25s, transform 0.18s;
+    outline: none;
+}
+.show-form-btn:hover, .show-form-btn:focus {
+    background: linear-gradient(90deg, #e3f0ff 60%, #fafdff 100%);
+    color: #fff;
+    border-color: var(--primary-hover-color);
+    background-color: var(--primary-color);
+    transform: scale(1.03);
+}
+.close-form-btn {
+    position: absolute;
+    top: 1.1rem;
+    right: 1.1rem;
+    background: none;
+    border: none;
+    font-size: 1.5rem;
+    color: var(--secondary-color);
+    cursor: pointer;
+    z-index: 10;
+    transition: color 0.2s, transform 0.2s;
+}
+.close-form-btn:hover {
+    color: var(--danger-color);
+    transform: scale(1.2);
+}
+.form-card { position: relative; }
+
+/* 日期选择器改进 */
+.datepicker-calendar td button.weekend {
+    color: #ff5252;
+}
+
+body.dark-theme .datepicker-calendar td button.weekend {
+    color: #ff7676;
+}
+
+.datepicker-calendar th.weekend-header {
+    color: #ff5252;
+    font-weight: bold;
+}
+
+body.dark-theme .datepicker-calendar th.weekend-header {
+    color: #ff7676;
+}

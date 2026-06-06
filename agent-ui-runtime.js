@@ -20,6 +20,9 @@
   const skillEditor = document.querySelector('textarea[placeholder^="在此定义Agent技能"]');
   const skillSaveButton = document.getElementById('save-skill-button') || document.querySelector('button[onclick*="已保存技能配置"]');
   const featuresPanel = document.querySelector('main > aside:last-child .p-3.overflow-y-auto');
+  const activeContextBar = document.getElementById('active-context-bar');
+  const contextLibrary = document.getElementById('context-library');
+  const refreshContextsButton = document.getElementById('refresh-contexts-btn');
 
   let selectedFiles = [];
   let pendingFeature = null;
@@ -164,6 +167,107 @@
     return payload;
   }
 
+  function contextKindLabel(kind) {
+    return { ocr: 'OCR', meeting: '会议', document: '文档' }[kind] || kind || '上下文';
+  }
+
+  function renderActiveContext(active) {
+    if (!activeContextBar) return;
+    const context = active && active.context;
+    if (!context || active.focus_state === 'MAIN') {
+      activeContextBar.classList.add('hidden');
+      activeContextBar.innerHTML = '';
+      return;
+    }
+    activeContextBar.classList.remove('hidden');
+    activeContextBar.innerHTML = `
+      <div class="flex items-center justify-between gap-2">
+        <div class="min-w-0">
+          <span class="font-semibold">当前上下文：</span>
+          <span>${escapeHtml(contextKindLabel(context.kind))} · ${escapeHtml(context.title || context.id)}</span>
+        </div>
+        <div class="flex items-center gap-2 shrink-0">
+          <button id="active-context-view" class="text-blue-700 hover:text-blue-900 focus:outline-none">查看</button>
+          <button id="active-context-clear" class="text-gray-500 hover:text-red-600 focus:outline-none">退出</button>
+        </div>
+      </div>
+    `;
+    const view = activeContextBar.querySelector('#active-context-view');
+    const clear = activeContextBar.querySelector('#active-context-clear');
+    if (view) view.addEventListener('click', () => showContextDetail(context.id));
+    if (clear) clear.addEventListener('click', clearActiveContext);
+  }
+
+  async function loadActiveContext() {
+    if (!activeContextBar) return;
+    try {
+      const response = await fetch('/api/context/active');
+      const payload = await response.json();
+      if (payload.ok) renderActiveContext(payload.active || {});
+    } catch {
+      return;
+    }
+  }
+
+  async function loadContexts() {
+    if (!contextLibrary) return;
+    try {
+      const response = await fetch('/api/contexts?limit=12');
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || '上下文读取失败');
+      const contexts = payload.contexts || [];
+      contextLibrary.innerHTML = contexts.length ? contexts.map(context => `
+        <button data-context-id="${escapeHtml(context.id)}" class="w-full text-left p-2 rounded-lg border border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition-colors focus:outline-none">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[11px] font-medium text-gray-800 truncate">${escapeHtml(context.title || context.id)}</span>
+            <span class="text-[10px] text-blue-600 shrink-0">${escapeHtml(contextKindLabel(context.kind))}</span>
+          </div>
+          <p class="text-[10px] text-gray-500 mt-0.5">${escapeHtml(context.summary || context.source_path || '')}</p>
+        </button>
+      `).join('') : '<p class="text-[11px] text-gray-400 px-1 py-2">暂无上下文</p>';
+      contextLibrary.querySelectorAll('[data-context-id]').forEach(button => {
+        button.addEventListener('click', () => activateContext(button.dataset.contextId));
+      });
+    } catch (error) {
+      contextLibrary.innerHTML = `<p class="text-[11px] text-red-500 px-1 py-2">${escapeHtml(error.message)}</p>`;
+    }
+  }
+
+  async function activateContext(contextId) {
+    if (!contextId) return;
+    try {
+      await postJson(`/api/contexts/${encodeURIComponent(contextId)}/activate`, {});
+      await loadActiveContext();
+      await loadContexts();
+      toast('已切换上下文');
+    } catch (error) {
+      appendMessage('error', `上下文切换失败：${error.message}`);
+    }
+  }
+
+  async function clearActiveContext() {
+    try {
+      await postJson('/api/context/clear-active', {});
+      await loadActiveContext();
+      toast('已退出上下文');
+    } catch (error) {
+      appendMessage('error', `退出上下文失败：${error.message}`);
+    }
+  }
+
+  async function showContextDetail(contextId) {
+    try {
+      const response = await fetch(`/api/contexts/${encodeURIComponent(contextId)}`);
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || '上下文读取失败');
+      const context = payload.context || {};
+      const artifacts = (context.artifacts || []).map(item => `- ${item.artifact_type}: ${item.path}`).join('\n') || '无';
+      appendMessage('agent', `上下文：${context.title}\n类型：${contextKindLabel(context.kind)}\n来源：${context.source_path || '无'}\n摘要：${context.summary || '无'}\n\nArtifacts:\n${artifacts}`);
+    } catch (error) {
+      appendMessage('error', `查看上下文失败：${error.message}`);
+    }
+  }
+
   async function putJson(url, body) {
     const response = await fetch(url, {
       method: 'PUT',
@@ -284,16 +388,23 @@
     activeEventSource.addEventListener('agent_event', event => {
       const data = JSON.parse(event.data);
       addThoughtStep(data);
+      if (data.type === 'CONTEXT_TRANSITION' && data.payload && data.payload.should_notify_user) {
+        toast(data.message || '上下文已切换');
+      }
       if (data.type === 'TASK_DONE') {
         currentTaskDoneShown = true;
         appendMessage('agent', data.message || '任务完成。');
         setSendBusy(false);
         loadTasks();
+        loadActiveContext();
+        loadContexts();
       }
       if (data.type === 'ERROR') {
         appendMessage('error', data.message || '任务失败。');
         setSendBusy(false);
         loadTasks();
+        loadActiveContext();
+        loadContexts();
       }
     });
     activeEventSource.addEventListener('task_state', event => {
@@ -308,6 +419,8 @@
       }
       setSendBusy(false);
       loadTasks();
+      loadActiveContext();
+      loadContexts();
       activeEventSource.close();
     });
     activeEventSource.onerror = () => {
@@ -497,6 +610,8 @@
       if (meetingRunning) {
         const payload = await postJson('/api/meeting/stop', {});
         updateMeetingUi(payload.meeting || {});
+        await loadActiveContext();
+        await loadContexts();
         const meeting = payload.meeting || {};
         const transcript = meeting.transcript || '';
         const workspacePath = meeting.workspace_transcript_relpath || '';
@@ -513,6 +628,8 @@
       } else {
         const payload = await postJson('/api/meeting/start', {});
         updateMeetingUi(payload.meeting || {});
+        await loadActiveContext();
+        await loadContexts();
         toast('会议记录已开启');
       }
     } catch (error) {
@@ -694,11 +811,17 @@
   }
   if (voiceInputButton) voiceInputButton.addEventListener('click', toggleVoiceInput);
   if (modelSelect) modelSelect.addEventListener('change', event => switchModel(event.target.value));
+  if (refreshContextsButton) refreshContextsButton.addEventListener('click', () => {
+    loadActiveContext();
+    loadContexts();
+  });
 
   loadTasks();
   loadFeatures();
   loadSkill();
   loadModels();
+  loadActiveContext();
+  loadContexts();
   applyMeetingCollapsed();
   refreshMeetingStatus();
   refreshSystemStatus();

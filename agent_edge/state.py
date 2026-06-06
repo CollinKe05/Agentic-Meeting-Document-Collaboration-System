@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import List
+from typing import Any
 
 try:
     from typing import TypedDict
@@ -19,6 +20,8 @@ class AgentState(TypedDict):
     user_input: str
     task_id: str
     conversation_context: str
+    context_pack: str
+    context_transition: dict[str, Any]
     plan: List[dict]
     past_steps: List[tuple]
     current_response: str

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any
 
+from . import context_store
 from .meeting_formatter import format_meeting_minutes
 from .ocr_memory import read_latest_ocr_result
 from .ocr_pc_tool import parse_document_with_ocr_pc
@@ -17,6 +19,34 @@ from .paths import (
 
 def json_observation(payload: dict[str, Any]) -> str:
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _maybe_record_document_context(rel_path: str, content: str, *, task_id: str | None) -> None:
+    suffix = Path(rel_path).suffix.lower()
+    code_like = {
+        ".py",
+        ".js",
+        ".ts",
+        ".tsx",
+        ".jsx",
+        ".css",
+        ".html",
+        ".sh",
+        ".ps1",
+        ".bat",
+        ".cmd",
+        ".toml",
+        ".yaml",
+        ".yml",
+        ".ini",
+        ".cfg",
+        ".json",
+        ".xml",
+    }
+    document_like = {".txt", ".md", ".markdown", ".csv", ".log"}
+    if suffix in code_like or suffix not in document_like:
+        return
+    context_store.record_document_context(path=rel_path, content=content, task_id=task_id, activate=True)
 
 
 def execute_local_action(action: str, action_input: str, *, task_id: str | None = None) -> str:
@@ -65,11 +95,13 @@ def _execute_local_tool(tool_name: str, args: dict[str, Any], *, task_id: str | 
     if tool_name == "SAFE_READ_TEXT_FILE":
         rel_path = str(args.get("path", ""))
         file_path = safe_child_path(WORKSPACE_DIR, rel_path)
+        content = read_limited_text(file_path)
+        _maybe_record_document_context(rel_path, content, task_id=task_id)
         return json_observation(
             {
                 "ok": True,
                 "path": rel_path,
-                "content": read_limited_text(file_path),
+                "content": content,
             }
         )
 

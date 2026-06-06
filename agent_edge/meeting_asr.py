@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import context_store
 from .paths import PROJECT_ROOT, WORKSPACE_DIR
 
 
@@ -25,6 +26,8 @@ _voice_session: "AsrSession | None" = None
 _last_meeting_transcript_path: Path | None = None
 _last_meeting_workspace_path: Path | None = None
 _last_meeting_transcript = ""
+_current_meeting_context_id: str | None = None
+_last_meeting_context_id: str | None = None
 
 
 @dataclass
@@ -41,6 +44,7 @@ class AsrSession:
 
 def start_meeting() -> dict[str, Any]:
     global _last_meeting_transcript, _last_meeting_transcript_path, _last_meeting_workspace_path, _meeting_session
+    global _current_meeting_context_id
     with _lock:
         if _is_live(_voice_session):
             raise RuntimeError("短语音输入正在使用麦克风，请先停止语音输入。")
@@ -50,14 +54,20 @@ def start_meeting() -> dict[str, Any]:
         _last_meeting_workspace_path = None
         _last_meeting_transcript = ""
         _meeting_session = _start_asr_session("meeting")
-        return meeting_status()
+        _current_meeting_context_id = _create_running_meeting_context()
+        status = meeting_status()
+        status["context_id"] = _current_meeting_context_id
+        return status
 
 
 def stop_meeting() -> dict[str, Any]:
     global _last_meeting_transcript, _last_meeting_transcript_path, _last_meeting_workspace_path, _meeting_session
+    global _current_meeting_context_id, _last_meeting_context_id
     with _lock:
         session = _meeting_session
         _meeting_session = None
+        context_id = _current_meeting_context_id
+        _current_meeting_context_id = None
         cached_path = _last_meeting_transcript_path
         cached_workspace_path = _last_meeting_workspace_path
         cached_transcript = _last_meeting_transcript
@@ -70,15 +80,25 @@ def stop_meeting() -> dict[str, Any]:
             source_path=Path(str(result["transcript_path"])) if result.get("transcript_path") else None,
         )
         _attach_workspace_record(result, workspace_path)
+        context_id = _complete_meeting_context(
+            context_id=context_id,
+            transcript=transcript,
+            source_path=Path(str(result["transcript_path"])) if result.get("transcript_path") else None,
+            workspace_path=workspace_path,
+        )
+        result["context_id"] = context_id
         with _lock:
             raw_path = result.get("transcript_path")
             _last_meeting_transcript_path = Path(str(raw_path)) if raw_path else None
             _last_meeting_workspace_path = workspace_path
             _last_meeting_transcript = transcript
+            _last_meeting_context_id = context_id
     elif session is None and cached_transcript:
         result["transcript_path"] = str(cached_path) if cached_path else None
         _attach_workspace_record(result, cached_workspace_path)
         result["transcript"] = cached_transcript
+        if _last_meeting_context_id:
+            result["context_id"] = _last_meeting_context_id
     return result
 
 
@@ -93,19 +113,52 @@ def meeting_status() -> dict[str, Any]:
                 "transcript_path": str(_last_meeting_transcript_path) if _last_meeting_transcript_path else None,
                 "transcript": _last_meeting_transcript,
             }
+            if _last_meeting_context_id:
+                result["context_id"] = _last_meeting_context_id
             _attach_workspace_record(result, _last_meeting_workspace_path)
             return result
-        return _status_for_session(session, idle_label="waiting", kind="meeting")
+        result = _status_for_session(session, idle_label="waiting", kind="meeting")
+        if _current_meeting_context_id:
+            result["context_id"] = _current_meeting_context_id
+        return result
 
 
 def meeting_summary_prompt() -> str:
     status = meeting_status()
     transcript = str(status.get("transcript") or "").strip()
     if not transcript:
+        transcript = _active_meeting_transcript()
+    if not transcript:
         raise ValueError("当前没有可总结的会议记录。")
     return (
         "请基于下面的实时会议转写生成会议纪要，包含：主题、关键结论、行动项、风险或待确认事项。\n\n"
         f"<meeting_transcript>\n{transcript}\n</meeting_transcript>"
+    )
+
+
+def _active_meeting_transcript() -> str:
+    active = context_store.get_active_context(include_context=True)
+    context = active.get("context") if active.get("focus_state") == "MEETING_ACTIVE" else None
+    if not context:
+        meetings = context_store.list_contexts(kind="meeting", limit=1)
+        context = meetings[0] if meetings else None
+    if not context:
+        return ""
+    stored = context_store.get_context(str(context["id"]), include_artifacts=True, include_chunks=True)
+    if not stored:
+        return ""
+    for artifact in stored.get("artifacts") or []:
+        if artifact.get("artifact_type") == "transcript":
+            try:
+                path = WORKSPACE_DIR / str(artifact.get("path") or "")
+                if path.is_file():
+                    return path.read_text(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+    return "\n".join(
+        str(chunk.get("text") or "")
+        for chunk in stored.get("chunks") or []
+        if chunk.get("chunk_type") == "transcript_segment"
     )
 
 
@@ -247,6 +300,105 @@ def _attach_workspace_record(result: dict[str, Any], workspace_path: Path | None
         rel_path = str(workspace_path)
     result["workspace_transcript_path"] = str(workspace_path)
     result["workspace_transcript_relpath"] = rel_path
+
+
+def _create_running_meeting_context() -> str:
+    started = time.strftime("%Y-%m-%d %H:%M:%S")
+    context_id = f"meeting_{int(time.time())}"
+    context = context_store.create_context(
+        kind="meeting",
+        title=f"会议记录 {started}",
+        summary="会议记录进行中",
+        status="running",
+        metadata={"started_at": started, "backend": _resolve_asr_backend()},
+        context_id=context_id,
+    )
+    context_store.set_active_context(
+        focus_state="MEETING_ACTIVE",
+        context_id=context["id"],
+        mode="soft",
+        entered_reason="meeting_started",
+        expires_after_turns=4,
+    )
+    return str(context["id"])
+
+
+def _complete_meeting_context(
+    *,
+    context_id: str | None,
+    transcript: str,
+    source_path: Path | None,
+    workspace_path: Path | None,
+) -> str:
+    if context_id and context_store.get_context(context_id, include_artifacts=False):
+        cid = context_id
+    else:
+        cid = f"meeting_{int(time.time())}"
+        context_store.create_context(
+            kind="meeting",
+            title=f"会议记录 {time.strftime('%Y-%m-%d %H:%M:%S')}",
+            status="active",
+            context_id=cid,
+        )
+
+    rel_workspace = _workspace_rel(workspace_path) if workspace_path else ""
+    title_source = workspace_path.name if workspace_path else (source_path.name if source_path else "meeting")
+    summary = _meeting_summary_preview(transcript)
+    context_store.update_context(
+        cid,
+        title=f"{title_source} 会议记录",
+        summary=summary,
+        source_path=rel_workspace or (str(source_path) if source_path else ""),
+        status="active",
+        metadata={
+            "source_path": str(source_path) if source_path else "",
+            "workspace_transcript_path": str(workspace_path) if workspace_path else "",
+            "completed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+        },
+    )
+    if workspace_path:
+        context_store.add_artifact(cid, "transcript", rel_workspace, name=workspace_path.name)
+    if source_path:
+        context_store.add_artifact(cid, "raw_transcript", str(source_path), name=source_path.name)
+    context_store.replace_chunks(cid, "transcript_segment")
+    context_store.add_chunks(
+        cid,
+        "transcript_segment",
+        _meeting_segments(transcript),
+        metadata={"workspace_transcript_path": rel_workspace},
+    )
+    context_store.set_active_context(
+        focus_state="MEETING_ACTIVE",
+        context_id=cid,
+        mode="soft",
+        entered_reason="meeting_stopped",
+        expires_after_turns=4,
+    )
+    return cid
+
+
+def _workspace_rel(path: Path | None) -> str:
+    if path is None:
+        return ""
+    try:
+        return path.relative_to(WORKSPACE_DIR).as_posix()
+    except ValueError:
+        return str(path)
+
+
+def _meeting_segments(transcript: str) -> list[str]:
+    lines = [line.strip() for line in transcript.splitlines() if line.strip()]
+    segments = [line for line in lines if re.search(r"\[\d{1,2}:\d{2}", line)]
+    return segments or context_store.split_text(transcript, max_chars=1000, overlap=80)
+
+
+def _meeting_summary_preview(transcript: str) -> str:
+    content_lines = [
+        line.strip()
+        for line in transcript.splitlines()
+        if line.strip() and not line.startswith("=") and "开始时间" not in line and line.strip() != "录音记录"
+    ]
+    return " ".join(content_lines)[:300]
 
 
 def _status_for_session(session: AsrSession | None, *, idle_label: str, kind: str) -> dict[str, Any]:

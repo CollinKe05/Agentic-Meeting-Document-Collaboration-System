@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RDK X5 待办事项</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <header>
+        <div class="header-center">
+            <h1>RDK X5 待办事项管理系统</h1>
+            <div class="header-controls">
+                <button id="refresh-btn" title="刷新页面数据">刷新数据</button>
+                <button id="theme-toggle-btn">切换主题</button>
+                <button id="fullscreen-btn" title="点击进入全屏模式">全屏显示 ↗</button>
+                <button id="exit-fullscreen-btn" style="display:none;" title="点击退出全屏">退出全屏 ↙</button>
+            </div>
+            <div id="clock">加载中...</div>
+        </div>
+    </header>
+
+    <main>
+    <section id="main-layout" class="main-flex">
+        <!-- 主内容区域 -->
+        <section class="content-area">
+            <section id="task-list-container" class="card">
+                <h2><span class="icon">📋</span> 任务列表</h2>
+                <div class="view-switcher-and-add">
+                    <div class="view-switcher">
+                        <button id="show-list-btn" class="active">列表视图</button>
+                        <button id="show-calendar-btn">日历视图</button>
+                    </div>
+                    <button id="show-form-btn" class="show-form-btn">➕ 添加新任务</button>
+                </div>
+                <ul id="task-list"></ul>
+            </section>
+            
+            <!-- 添加/编辑任务表单 -->
+            <section id="task-form-section" class="card form-card" style="display:none;">
+                <button id="close-form-btn" class="close-form-btn" title="收起">×</button>
+                <h2 id="form-title"><span class="icon">📝</span> 添加/编辑任务</h2>
+                <form id="task-form">
+                    <input type="hidden" id="task-id">
+                    <div class="form-group">
+                        <label for="task-title">标题 <span class="required">*</span></label>
+                        <input type="text" id="task-title" placeholder="请输入任务标题" required maxlength="30">
+                    </div>
+                    <div class="form-group">
+                        <label for="task-description">描述</label>
+                        <textarea id="task-description" placeholder="任务描述，支持多行..." maxlength="100"></textarea>
+                    </div>
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="task-priority">优先级</label>
+                            <select id="task-priority">
+                                <option value="高">高</option>
+                                <option value="中" selected>中</option>
+                                <option value="低">低</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="task-category">分类</label>
+                            <input type="text" id="task-category" placeholder="如：工作/生活">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="task-due-date">截止日期</label>
+                        <div class="date-time-container">
+                            <input type="text" id="task-due-date-date" class="date-input" placeholder="YYYY-MM-DD" pattern="\d{4}-\d{2}-\d{2}">
+                            <input type="text" id="task-due-date-time" class="time-input" placeholder="HH:MM" pattern="\d{2}:\d{2}" value="12:00">
+                            <input type="hidden" id="task-due-date">
+                            <button type="button" id="clear-date-btn" class="clear-date-btn" title="清除日期">清除</button>
+                        </div>
+                        <div class="date-helper-text">选择任务截止的日期和时间</div>
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" id="save-task-btn">保存</button>
+                        <button type="button" id="cancel-edit-btn" style="display: none;">取消</button>
+                    </div>
+                </form>
+            </section>
+            
+            <section id="calendar-view-container" class="card" style="display: none;">
+                <h2><span class="icon">📅</span> 日程视图</h2>
+                <div class="view-switcher">
+                    <button id="show-list-btn">返回任务列表</button>
+                    <button id="calendar-month-btn" class="active">月</button>
+                    <button id="calendar-week-btn">周</button>
+                    <button id="calendar-day-btn">日</button>
+                </div>
+                <div id="calendar-grid">
+                    <p class="placeholder">正在加载日历...</p>
+                </div>
+            </section>
+            <section id="settings-container" class="card" style="display: none;">
+                <h2>设置</h2>
+                <p>设置功能待实现 (时区, 工作日, 主题等)。</p>
+            </section>
+        </section>
+    </section>
+</main>
+
+    <footer>
+        <!-- Footer content -->
+    </footer>
+
+    <script src="js/script.js"></script>
+    <script src="js/datepicker.js"></script>
+</body>
+</html>

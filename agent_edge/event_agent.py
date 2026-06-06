@@ -10,6 +10,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from . import context_pack as context_pack_builder
+from . import context_policy
 from . import task_store
 from .heavy_runtime import get_active_engine, is_llama_server_running
 from .paths import WORKSPACE_DIR
@@ -43,6 +45,8 @@ class SharedState:
     backend: str
     attachments: list[dict[str, Any]] = field(default_factory=list)
     conversation_context: str = ""
+    context_pack: str = ""
+    context_transition: dict[str, Any] = field(default_factory=dict)
     plan: list[dict[str, Any]] = field(default_factory=list)
     past_steps: list[tuple[Any, Any]] = field(default_factory=list)
     current_response: str = ""
@@ -254,8 +258,34 @@ def _run_task(task_id: str) -> None:
 
     try:
         task_store.update_task(task_id, status="running")
-        state.conversation_context = build_conversation_context(exclude_task_id=task_id)
+        state.context_transition = context_policy.resolve_transition(
+            thread_id="main",
+            user_message=state.prompt,
+            attachments=state.attachments,
+        )
+        state.context_pack = context_pack_builder.build_context_pack(state.context_transition, user_message=state.prompt)
+        state.conversation_context = "" if state.context_pack else build_conversation_context(exclude_task_id=task_id)
         _event(state, EVENT_USER_MESSAGE, "接收任务", state.prompt[:1200], {"attachments": state.attachments})
+        if state.context_transition.get("transition") not in {"stay_main", "idle"}:
+            _event(
+                state,
+                "CONTEXT_TRANSITION",
+                "上下文状态切换",
+                str(state.context_transition.get("reason") or ""),
+                state.context_transition,
+            )
+        if state.context_pack:
+            _event(
+                state,
+                "FOCUS_CONTEXT_LOADED",
+                "加载业务上下文",
+                state.context_pack[:1200],
+                {
+                    "chars": len(state.context_pack),
+                    "context_id": state.context_transition.get("target_context_id"),
+                    "focus_state": state.context_transition.get("to_state"),
+                },
+            )
         if state.conversation_context:
             _event(
                 state,
@@ -297,6 +327,8 @@ def _run_graph(state: SharedState) -> dict[str, Any]:
         compact_text_for_llm(state.prompt),
         task_id=state.task_id,
         conversation_context=state.conversation_context,
+        context_pack=state.context_pack,
+        context_transition=state.context_transition,
     )
     graph_state["current_response"] = user_visible_response(graph_state)
     return dict(graph_state)

@@ -11,6 +11,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from . import context_store
 from .paths import PROJECT_ROOT, WORKSPACE_DIR, safe_child_path
 
 
@@ -52,6 +53,18 @@ def format_meeting_minutes(args: dict[str, Any]) -> dict[str, Any]:
 
     typst_result = _compile_typst(typ_path=typ_path, pdf_path=pdf_path)
     desktop_copy = _copy_pdf_to_desktop(pdf_path=pdf_path, minutes=minutes) if typst_result["ok"] else {"ok": False, "copied": False}
+    context_id = _attach_minutes_to_context(
+        minutes=minutes,
+        source_path=source_path,
+        cleaned_transcript=cleaned,
+        paths={
+            "json": json_path,
+            "markdown": markdown_path,
+            "typ": typ_path,
+            "pdf": pdf_path if typst_result["ok"] else None,
+            "transcript": transcript_path,
+        },
+    )
 
     return {
         "ok": True,
@@ -68,7 +81,80 @@ def format_meeting_minutes(args: dict[str, Any]) -> dict[str, Any]:
         "summary": minutes.get("summary", ""),
         "todo_count": len(minutes.get("todos", [])),
         "risk_count": len(minutes.get("risks", [])),
+        "context_id": context_id,
     }
+
+
+def _attach_minutes_to_context(
+    *,
+    minutes: dict[str, Any],
+    source_path: Path | None,
+    cleaned_transcript: str,
+    paths: dict[str, Path | None],
+) -> str:
+    active = context_store.get_active_context(include_context=True)
+    context = active.get("context") if active.get("focus_state") == "MEETING_ACTIVE" else None
+    if context:
+        context_id = str(context["id"])
+    else:
+        context_id = f"meeting_minutes_{hashlib.sha1(str(source_path or minutes.get('title')).encode('utf-8')).hexdigest()[:12]}"
+        context_store.create_context(
+            kind="meeting",
+            title=str(minutes.get("title") or "会议纪要"),
+            summary=str(minutes.get("summary") or "")[:300],
+            source_path=_workspace_rel(source_path) if source_path else "",
+            metadata={"source_path": str(source_path) if source_path else ""},
+            context_id=context_id,
+        )
+
+    context_store.update_context(
+        context_id,
+        title=str(minutes.get("title") or "会议纪要"),
+        summary=str(minutes.get("summary") or "")[:300],
+        status="active",
+    )
+    artifact_map = {
+        "minutes_json": paths.get("json"),
+        "minutes_md": paths.get("markdown"),
+        "minutes_typ": paths.get("typ"),
+        "minutes_pdf": paths.get("pdf"),
+        "transcript": paths.get("transcript"),
+    }
+    for artifact_type, path in artifact_map.items():
+        if path:
+            context_store.add_artifact(context_id, artifact_type, _workspace_rel(path), name=path.name)
+
+    context_store.replace_chunks(context_id, "summary")
+    context_store.add_chunk(context_id, "summary", str(minutes.get("summary") or ""), metadata={"source": "minutes"})
+    for key, chunk_type in (("key_points", "decision"), ("decisions", "decision"), ("risks", "risk")):
+        for item in minutes.get(key) or []:
+            context_store.add_chunk(context_id, chunk_type, str(item), metadata={"source": key})
+    for todo in minutes.get("todos") or []:
+        context_store.add_chunk(context_id, "todo", json.dumps(todo, ensure_ascii=False), metadata={"source": "todos"})
+    if not context_store.search_chunks("会议", context_id=context_id, limit=1):
+        context_store.add_chunks(
+            context_id,
+            "transcript_segment",
+            context_store.split_text(cleaned_transcript, max_chars=1200, overlap=100),
+            metadata={"source": "formatter_transcript"},
+        )
+    context_store.set_active_context(
+        focus_state="MEETING_ACTIVE",
+        context_id=context_id,
+        mode="soft",
+        entered_reason="minutes_exported",
+        expires_after_turns=4,
+    )
+    return context_id
+
+
+def _workspace_rel(path: Path | None) -> str:
+    if path is None:
+        return ""
+    try:
+        return path.relative_to(WORKSPACE_DIR).as_posix()
+    except ValueError:
+        return str(path)
 
 
 def _load_transcript(args: dict[str, Any]) -> tuple[str, Path | None]:

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from . import task_store
+from . import context_store, task_store
 from .event_agent import features, start_task, wait_for_task
 from .heavy_runtime import (
     cleanup_managed_processes,
@@ -38,6 +38,7 @@ LLAMA_CPP_BACKEND = "llama_cpp"
 def main() -> int:
     ensure_demo_assets()
     task_store.ensure_schema()
+    context_store.ensure_schema()
     host = os.environ.get("AGENT_UI_HOST", "127.0.0.1")
     port = int(os.environ.get("AGENT_UI_PORT", "7860"))
     os.environ.setdefault("AGENT_RESOURCE_CALLBACK_URL", f"http://127.0.0.1:{port}/api/runtime/resource")
@@ -82,11 +83,33 @@ class AgentUIHandler(BaseHTTPRequestHandler):
                     "active_engine": get_active_engine(),
                     "llama_server_running": is_llama_server_running(),
                     "current_model": get_current_llama_cpp_model(),
+                    "active_context": context_store.get_active_context(include_context=False),
                 }
             )
             return
         if path == "/api/models":
             self._send_json({"ok": True, "models": list_llama_cpp_models(), "current_model": get_current_llama_cpp_model()})
+            return
+        if path == "/api/context/active":
+            self._send_json({"ok": True, "active": context_store.get_active_context(include_context=True)})
+            return
+        if path == "/api/contexts":
+            query = parse_qs(parsed.query)
+            kind = query.get("kind", [""])[0] or None
+            limit = int(query.get("limit", ["30"])[0])
+            self._send_json({"ok": True, "contexts": context_store.list_contexts(kind=kind, limit=limit)})
+            return
+        if match := re.fullmatch(r"/api/contexts/([A-Za-z0-9_-]+)", path):
+            context = context_store.get_context(match.group(1), include_artifacts=True, include_chunks=False)
+            if not context:
+                self._send_json({"ok": False, "error": "context 不存在"}, HTTPStatus.NOT_FOUND)
+                return
+            self._send_json({"ok": True, "context": context})
+            return
+        if match := re.fullmatch(r"/api/contexts/([A-Za-z0-9_-]+)/chunks", path):
+            query = parse_qs(parsed.query).get("query", [""])[0]
+            chunks = context_store.search_chunks(query, context_id=match.group(1), limit=20)
+            self._send_json({"ok": True, "chunks": chunks})
             return
         if path == "/api/meeting/status":
             from .meeting_asr import meeting_status
@@ -153,6 +176,15 @@ class AgentUIHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/models/select":
             self._handle_select_model()
+            return
+        if path == "/api/context/clear-active":
+            self._send_json({"ok": True, "active": context_store.clear_active_context(reason="ui_clear")})
+            return
+        if match := re.fullmatch(r"/api/contexts/([A-Za-z0-9_-]+)/activate", path):
+            try:
+                self._send_json({"ok": True, "active": context_store.activate_context(match.group(1), reason="ui_activate")})
+            except KeyError:
+                self._send_json({"ok": False, "error": "context 不存在"}, HTTPStatus.NOT_FOUND)
             return
         if path == "/api/meeting/start":
             self._handle_meeting_start()
