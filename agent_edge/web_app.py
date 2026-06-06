@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from . import context_store, task_store
+from . import context_store, task_store, todo_store
 from .event_agent import features, start_task, wait_for_task
 from .heavy_runtime import (
     cleanup_managed_processes,
@@ -29,6 +29,7 @@ from .paths import PROJECT_ROOT, SKILLS_DIR, WORKSPACE_DIR, ensure_demo_assets, 
 
 
 UI_DIR = Path(__file__).resolve().parent / "ui"
+TODO_UI_DIR = PROJECT_ROOT / "todo_rdk" / "frontend"
 MAX_UPLOAD_BYTES = int(os.environ.get("AGENT_UI_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
 SSE_SLEEP_SECONDS = 0.35
 SSE_MAX_SECONDS = int(os.environ.get("AGENT_SSE_MAX_SECONDS", "3600"))
@@ -39,6 +40,7 @@ def main() -> int:
     ensure_demo_assets()
     task_store.ensure_schema()
     context_store.ensure_schema()
+    todo_store.ensure_schema()
     host = os.environ.get("AGENT_UI_HOST", "127.0.0.1")
     port = int(os.environ.get("AGENT_UI_PORT", "7860"))
     os.environ.setdefault("AGENT_RESOURCE_CALLBACK_URL", f"http://127.0.0.1:{port}/api/runtime/resource")
@@ -69,6 +71,14 @@ class AgentUIHandler(BaseHTTPRequestHandler):
 
         if path == "/":
             self._send_file(_ui_index_path(), "text/html; charset=utf-8")
+            return
+        if path == "/todo":
+            self._send_file(safe_child_path(TODO_UI_DIR, "index.html"), "text/html; charset=utf-8")
+            return
+        if path.startswith("/todo/"):
+            rel = path.replace("/todo/", "", 1)
+            asset_path = safe_child_path(TODO_UI_DIR, rel)
+            self._send_file(asset_path, _content_type(asset_path))
             return
         if path in {"/tailwind.min.js", "/agent-ui-runtime.js"}:
             self._send_file(safe_child_path(PROJECT_ROOT, path.lstrip("/")), _content_type(Path(path)))
@@ -127,6 +137,17 @@ class AgentUIHandler(BaseHTTPRequestHandler):
 
             self._send_json({"ok": True, "voice_input": voice_input_status()})
             return
+        if path == "/api/todo/tasks":
+            limit = int(parse_qs(parsed.query).get("limit", ["200"])[0])
+            self._send_json({"ok": True, "tasks": todo_store.list_tasks(limit=limit)})
+            return
+        if match := re.fullmatch(r"/api/todo/tasks/(\d+)", path):
+            task = todo_store.get_task(match.group(1))
+            if not task:
+                self._send_json({"ok": False, "error": "日程不存在"}, HTTPStatus.NOT_FOUND)
+                return
+            self._send_json({"ok": True, "task": task})
+            return
         if path == "/api/tasks":
             limit = int(parse_qs(parsed.query).get("limit", ["50"])[0])
             self._send_json({"ok": True, "tasks": task_store.list_tasks(limit=limit)})
@@ -156,6 +177,9 @@ class AgentUIHandler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
         path = parsed.path.rstrip("/") or "/"
+        if path == "/api/todo/tasks":
+            self._handle_todo_create()
+            return
         if path == "/api/tasks":
             self._handle_create_task()
             return
@@ -205,8 +229,20 @@ class AgentUIHandler(BaseHTTPRequestHandler):
 
     def do_PUT(self) -> None:
         parsed = urlparse(self.path)
-        if parsed.path.rstrip("/") == "/api/skills":
+        path = parsed.path.rstrip("/") or "/"
+        if match := re.fullmatch(r"/api/todo/tasks/(\d+)", path):
+            self._handle_todo_update(match.group(1))
+            return
+        if path == "/api/skills":
             self._handle_save_skill()
+            return
+        self.send_error(HTTPStatus.NOT_FOUND)
+
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+        path = parsed.path.rstrip("/") or "/"
+        if match := re.fullmatch(r"/api/todo/tasks/(\d+)", path):
+            self._handle_todo_delete(match.group(1))
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
@@ -243,6 +279,32 @@ class AgentUIHandler(BaseHTTPRequestHandler):
             )
         except Exception as exc:  # noqa: BLE001 - compatibility boundary
             self._send_json({"ok": False, "error": f"{type(exc).__name__}: {exc}"}, HTTPStatus.INTERNAL_SERVER_ERROR)
+
+    def _handle_todo_create(self) -> None:
+        try:
+            task = todo_store.add_task(self._read_json())
+            self._send_json({"ok": True, "task": task}, HTTPStatus.CREATED)
+        except Exception as exc:  # noqa: BLE001 - API boundary
+            self._send_json({"ok": False, "error": str(exc), "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+    def _handle_todo_update(self, task_id: str) -> None:
+        try:
+            task = todo_store.update_task(task_id, self._read_json())
+            if not task:
+                self._send_json({"ok": False, "error": "日程不存在", "message": "日程不存在"}, HTTPStatus.NOT_FOUND)
+                return
+            self._send_json({"ok": True, "task": task})
+        except Exception as exc:  # noqa: BLE001 - API boundary
+            self._send_json({"ok": False, "error": str(exc), "message": str(exc)}, HTTPStatus.BAD_REQUEST)
+
+    def _handle_todo_delete(self, task_id: str) -> None:
+        try:
+            if not todo_store.delete_task(task_id):
+                self._send_json({"ok": False, "error": "日程不存在", "message": "日程不存在"}, HTTPStatus.NOT_FOUND)
+                return
+            self._send_json({"ok": True})
+        except Exception as exc:  # noqa: BLE001 - API boundary
+            self._send_json({"ok": False, "error": str(exc), "message": str(exc)}, HTTPStatus.BAD_REQUEST)
 
     def _handle_upload(self) -> None:
         try:

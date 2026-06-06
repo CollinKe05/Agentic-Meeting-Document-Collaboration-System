@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from . import context_store
+from . import context_store, todo_store
 from .meeting_formatter import format_meeting_minutes
 from .ocr_memory import read_latest_ocr_result
 from .ocr_pc_tool import parse_document_with_ocr_pc
@@ -89,6 +89,40 @@ def _execute_local_tool(tool_name: str, args: dict[str, Any], *, task_id: str | 
         skills = sorted(path.name for path in SKILLS_DIR.glob("*.md") if path.is_file())
         return json_observation({"ok": True, "skills": skills})
 
+    if tool_name == "LIST_TODO_TASKS":
+        query = str(args.get("query", "")).strip()
+        if query:
+            return json_observation({"ok": True, "tasks": todo_store.find_tasks(query, limit=int(args.get("limit", 20)))})
+        return json_observation({"ok": True, "tasks": todo_store.list_tasks(limit=int(args.get("limit", 50)))})
+
+    if tool_name == "ADD_TODO_TASK":
+        return json_observation({"ok": True, "task": todo_store.add_task(args)})
+
+    if tool_name == "UPDATE_TODO_TASK":
+        task, error = _resolve_todo_task(args)
+        if error:
+            return json_observation({"ok": False, "error": error})
+        fields = {key: args[key] for key in ("title", "description", "priority", "completed", "category", "due_date") if key in args}
+        if not fields:
+            return json_observation({"ok": False, "error": "没有可更新的日程字段"})
+        return json_observation({"ok": True, "task": todo_store.update_task(task["id"], fields)})
+
+    if tool_name == "COMPLETE_TODO_TASK":
+        task, error = _resolve_todo_task(args, include_completed=False)
+        if error:
+            return json_observation({"ok": False, "error": error})
+        return json_observation({"ok": True, "task": todo_store.update_task(task["id"], {"completed": True})})
+
+    if tool_name == "DELETE_TODO_TASK":
+        task, error = _resolve_todo_task(args)
+        if error:
+            return json_observation({"ok": False, "error": error})
+        return json_observation({"ok": todo_store.delete_task(task["id"]), "task": task})
+
+    if tool_name == "APPLY_TODO_INSTRUCTION":
+        instruction = str(args.get("instruction") or args.get("text") or args.get("prompt") or "")
+        return json_observation(todo_store.apply_instruction(instruction))
+
     if tool_name == "READ_LAST_OCR_RESULT":
         return json_observation(read_latest_ocr_result(args))
 
@@ -124,3 +158,24 @@ def _execute_local_tool(tool_name: str, args: dict[str, Any], *, task_id: str | 
         return json_observation(parse_document_with_ocr_pc(args))
 
     return json_observation({"ok": False, "error": f"未知本地工具：{tool_name}"})
+
+
+def _resolve_todo_task(args: dict[str, Any], *, include_completed: bool = True) -> tuple[dict[str, Any] | None, str]:
+    if args.get("id") is not None:
+        task = todo_store.get_task(args["id"])
+        return (task, "") if task else (None, "日程不存在")
+
+    query = str(args.get("query") or args.get("title") or "").strip()
+    if not query:
+        return None, "请提供日程 id 或 query/title"
+
+    matches = todo_store.find_tasks(query, include_completed=include_completed, limit=10)
+    exact = [task for task in matches if task["title"] == query]
+    if exact:
+        matches = exact
+    if not matches:
+        return None, f"没有找到匹配“{query}”的日程"
+    if len(matches) > 1:
+        titles = "；".join(f"{task['id']}:{task['title']}" for task in matches[:5])
+        return None, f"找到多条匹配“{query}”的日程，请指定 id。候选：{titles}"
+    return matches[0], ""

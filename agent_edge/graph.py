@@ -98,6 +98,24 @@ TOOL_INTENT_KEYWORDS = {
     "typst",
     "pdf",
     "导出",
+    "日程",
+    "待办",
+    "提醒",
+    "安排",
+    "添加",
+    "新增",
+    "创建",
+    "改到",
+    "改为",
+    "调整",
+    "延期",
+    "提前",
+    "完成",
+    "删除",
+    "删掉",
+    "移除",
+    "todo",
+    "schedule",
 }
 
 
@@ -387,7 +405,24 @@ def _should_answer_from_context(user_input: str) -> bool:
         return False
     if _extract_workspace_file_path({}, user_input):
         return False
-    tool_intents = {"解析", "导出", "生成文件", "开始会议", "写入", "保存", "parse", "export"}
+    tool_intents = {
+        "解析",
+        "导出",
+        "生成文件",
+        "开始会议",
+        "写入",
+        "保存",
+        "日程",
+        "待办",
+        "提醒",
+        "改到",
+        "删除",
+        "完成",
+        "todo",
+        "schedule",
+        "parse",
+        "export",
+    }
     return not any(keyword in lowered or keyword in user_input for keyword in tool_intents)
 
 
@@ -598,6 +633,27 @@ def _deterministic_plan(user_input: str) -> list[dict[str, Any]]:
             },
         ]
 
+    if _should_handle_todo_instruction(user_input):
+        return [
+            {
+                "id": 1,
+                "kind": "learn_skill",
+                "objective": "学习本地日程和待办管理技能。",
+                "skill_file": "todo_schedule_skill.md",
+                "status": "todo",
+                "attempts": 0,
+            },
+            {
+                "id": 2,
+                "kind": "use_tool",
+                "objective": "根据用户自然语言指令安全地添加、修改、完成或删除日程。",
+                "tool_name": "APPLY_TODO_INSTRUCTION",
+                "tool_input": {"instruction": user_input},
+                "status": "todo",
+                "attempts": 0,
+            },
+        ]
+
     if "列出" in user_input and ("技能" in user_input or "skill" in lowered):
         return [
             {
@@ -641,6 +697,36 @@ def _deterministic_plan(user_input: str) -> list[dict[str, Any]]:
         ]
 
     return []
+
+
+def _should_handle_todo_instruction(user_input: str) -> bool:
+    lowered = user_input.lower()
+    if _extract_workspace_file_path({}, user_input):
+        return False
+    if _should_format_meeting_minutes(user_input):
+        return False
+    if any(keyword in lowered for keyword in ("todo", "schedule")):
+        return True
+    if any(keyword in user_input for keyword in ("日程", "待办", "提醒")):
+        return True
+    if any(keyword in user_input for keyword in ("改到", "改为", "调整到", "延期到", "提前到")):
+        return True
+    if any(keyword in user_input for keyword in ("删除", "删掉", "移除", "取消", "完成", "做完", "办完")) and len(user_input) <= 80:
+        return True
+    if any(keyword in user_input for keyword in ("添加", "新增", "安排", "创建")) and _looks_like_schedule_time(user_input):
+        return True
+    return False
+
+
+def _looks_like_schedule_time(user_input: str) -> bool:
+    return bool(
+        re.search(r"\d{4}[-/年]\d{1,2}[-/月]\d{1,2}", user_input)
+        or re.search(r"(?<!\d)\d{1,2}[-/月]\d{1,2}", user_input)
+        or re.search(r"(?:下周|下星期|下礼拜)?(?:周|星期|礼拜)[一二三四五六日天]", user_input)
+        or re.search(r"\d{1,2}[:：]\d{1,2}", user_input)
+        or re.search(r"[零〇一二两三四五六七八九十\d]{1,3}点", user_input)
+        or any(keyword in user_input for keyword in ("今天", "明天", "后天", "大后天", "上午", "下午", "晚上", "中午", "凌晨"))
+    )
 
 
 def _should_format_meeting_minutes(user_input: str, path: str | None = None) -> bool:

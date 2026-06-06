@@ -3,13 +3,21 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RDK X5 待办事项</title>
-    <link rel="stylesheet" href="css/style.css">
+    <title>Agent 日程管理</title>
+    <link rel="stylesheet" href="/todo/css/style.css">
 </head>
 <body>
+    <nav class="app-nav">
+        <a class="app-nav-brand" href="/">Agent 控制中心</a>
+        <div class="app-nav-links">
+            <a href="/">Agent</a>
+            <a class="active" href="/todo/">日程管理</a>
+        </div>
+    </nav>
+
     <header>
         <div class="header-center">
-            <h1>RDK X5 待办事项管理系统</h1>
+            <h1>Agent 日程管理</h1>
             <div class="header-controls">
                 <button id="refresh-btn" title="刷新页面数据">刷新数据</button>
                 <button id="theme-toggle-btn">切换主题</button>
@@ -84,7 +92,7 @@
             <section id="calendar-view-container" class="card" style="display: none;">
                 <h2><span class="icon">📅</span> 日程视图</h2>
                 <div class="view-switcher">
-                    <button id="show-list-btn">返回任务列表</button>
+                    <button id="calendar-list-btn">返回任务列表</button>
                     <button id="calendar-month-btn" class="active">月</button>
                     <button id="calendar-week-btn">周</button>
                     <button id="calendar-day-btn">日</button>
@@ -105,7 +113,7 @@
         <!-- Footer content -->
     </footer>
 
-    <script src="js/script.js"></script>
-    <script src="js/datepicker.js"></script>
+    <script src="/todo/js/script.js"></script>
+    <script src="/todo/js/datepicker.js"></script>
 </body>
 </html>

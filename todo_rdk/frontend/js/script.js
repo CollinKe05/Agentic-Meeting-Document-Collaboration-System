@@ -64,7 +64,7 @@ document.addEventListener('DOMContentLoaded', () => {
         applyTheme(preferredTheme);
     }
 
-    const API_BASE_URL = '/api'; // Relative URL
+    const API_BASE_URL = '/api/todo';
 
     // --- State ---
     let editingTaskId = null; // null when adding, task ID when editing
@@ -153,11 +153,17 @@ document.addEventListener('DOMContentLoaded', () => {
                 console.error(`HTTP error! status: ${response.status}`, errorData);
                 throw new Error(errorData.message || `Request failed with status ${response.status}`);
             }
-             // Handle empty response body for methods like DELETE or PUT
-             if (response.status === 204 || method === 'DELETE' || method === 'PUT') {
-                 return { success: true }; // Or specific success message if available
-             }
-            return await response.json();
+            if (response.status === 204) {
+                return { success: true };
+            }
+            const data = await response.json().catch(() => ({ success: true }));
+            if (data && data.ok && Array.isArray(data.tasks)) {
+                return data.tasks;
+            }
+            if (data && data.ok && data.task) {
+                return data.task;
+            }
+            return data;
         } catch (error) {
             console.error(`API call failed: ${method} ${url}`, error);
             alert(`操作失败: ${error.message}`);
@@ -1290,7 +1296,7 @@ function renderDayView() {
     });
 
     // 让日历视图的“返回任务列表”按钮切换回列表视图
-const calendarListBtn = document.querySelector('#calendar-view-container .view-switcher #show-list-btn');
+const calendarListBtn = document.getElementById('calendar-list-btn');
 if (calendarListBtn) {
     calendarListBtn.addEventListener('click', () => switchView('list'));
 }
