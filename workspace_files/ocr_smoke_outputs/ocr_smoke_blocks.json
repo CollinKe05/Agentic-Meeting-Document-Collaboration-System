@@ -1,0 +1,112 @@
+{
+  "metadata": {
+    "total_pages": 1,
+    "total_textboxes": 4,
+    "processing_info": "coordinate_based_reading_order_with_column_detection"
+  },
+  "pages": [
+    {
+      "page_index": 0,
+      "page_info": {
+        "page_index": 0,
+        "total_blocks": 2,
+        "valid_blocks": 2,
+        "total_text_boxes": 4
+      },
+      "blocks": [
+        {
+          "block_info": {
+            "class_name": "图片",
+            "bbox": [
+              39,
+              61,
+              147,
+              72
+            ],
+            "score": 0.6400959491729736,
+            "block_idx": 1,
+            "page_idx": 0,
+            "is_virtual_text": true,
+            "textbox_reading_order_median": 0.5
+          },
+          "contained_text_boxes": [
+            {
+              "bbox": [
+                38,
+                60,
+                148,
+                75
+              ],
+              "transcription": "AgentOCR Smoke Test",
+              "score": 0.9904437065124512,
+              "is_virtual": false,
+              "illegibility": false,
+              "page_reading_order": 0,
+              "global_reading_order": 0
+            },
+            {
+              "bbox": [
+                39,
+                61.0,
+                147,
+                72
+              ],
+              "transcription": "",
+              "score": 1.0,
+              "is_virtual": true,
+              "illegibility": false,
+              "page_reading_order": 1,
+              "global_reading_order": 1
+            }
+          ]
+        },
+        {
+          "block_info": {
+            "class_name": "图片",
+            "bbox": [
+              38,
+              121,
+              91,
+              130
+            ],
+            "score": 0.7981792688369751,
+            "block_idx": 0,
+            "page_idx": 0,
+            "is_virtual_text": true,
+            "textbox_reading_order_median": 2.5
+          },
+          "contained_text_boxes": [
+            {
+              "bbox": [
+                37,
+                119,
+                94,
+                134
+              ],
+              "transcription": "Hello 2026",
+              "score": 0.9533489942550659,
+              "is_virtual": false,
+              "illegibility": false,
+              "page_reading_order": 2,
+              "global_reading_order": 2
+            },
+            {
+              "bbox": [
+                38,
+                121.0,
+                91,
+                130
+              ],
+              "transcription": "",
+              "score": 1.0,
+              "is_virtual": true,
+              "illegibility": false,
+              "page_reading_order": 3,
+              "global_reading_order": 3
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

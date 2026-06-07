@@ -1,0 +1,30 @@
+[
+  {
+    "id": 1,
+    "type": "图片",
+    "page": 1,
+    "text": "AgentOCR Smoke Test",
+    "bbox": [
+      39,
+      61,
+      147,
+      72
+    ],
+    "reading_order": 0.5,
+    "is_virtual_text": true
+  },
+  {
+    "id": 2,
+    "type": "图片",
+    "page": 1,
+    "text": "Hello 2026",
+    "bbox": [
+      38,
+      121,
+      91,
+      130
+    ],
+    "reading_order": 2.5,
+    "is_virtual_text": true
+  }
+]

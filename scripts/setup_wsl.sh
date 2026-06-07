@@ -25,8 +25,17 @@ if ! dpkg -s libportaudio2 >/dev/null 2>&1; then
 fi
 if [ "${#NEEDED_APT_PACKAGES[@]}" -gt 0 ]; then
   if command -v apt-get >/dev/null 2>&1; then
-    apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y "${NEEDED_APT_PACKAGES[@]}"
+    APT=(apt-get)
+    if [ "$(id -u)" -ne 0 ]; then
+      if command -v sudo >/dev/null 2>&1; then
+        APT=(sudo apt-get)
+      else
+        echo "Missing system packages: ${NEEDED_APT_PACKAGES[*]}; rerun as root or install sudo."
+        exit 1
+      fi
+    fi
+    "${APT[@]}" update
+    DEBIAN_FRONTEND=noninteractive "${APT[@]}" install -y "${NEEDED_APT_PACKAGES[@]}"
   else
     echo "Missing system packages: ${NEEDED_APT_PACKAGES[*]}, and apt-get is unavailable."
     exit 1

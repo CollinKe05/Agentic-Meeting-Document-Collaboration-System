@@ -6,7 +6,7 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 INPUT=""
 OUTPUT_ROOT=""
-SYSS_DIR="${SYSS_PROJECT_DIR:-/home/sunrise/syss/syss_f16yolo}"
+SYSS_DIR="${SYSS_PROJECT_DIR:-}"
 SYSS_IMPORT="${SYSS_IMPORT_NAME:-}"
 PYTHON_BIN="${OCR_PC_PYTHON:-${PYTHON:-python3}}"
 
@@ -20,7 +20,7 @@ Examples:
   scripts/run_syss_ocr_once.sh -i /tmp/demo.png -o /tmp/ocr_outputs
 
 Defaults:
-  SYSS_PROJECT_DIR=/home/sunrise/syss/syss_f16yolo
+  SYSS_PROJECT_DIR is optional. When omitted, the project-native sys_core.syss package is used.
   OUTPUT_ROOT=workspace_files/ocr_outputs
 EOF
 }
@@ -66,7 +66,11 @@ if [[ -z "${OUTPUT_ROOT}" ]]; then
 fi
 
 export AGENT_OCR_BACKEND=syss
-export SYSS_PROJECT_DIR="${SYSS_DIR}"
+if [[ -n "${SYSS_DIR}" ]]; then
+  export SYSS_PROJECT_DIR="${SYSS_DIR}"
+else
+  unset SYSS_PROJECT_DIR
+fi
 if [[ -n "${SYSS_IMPORT}" ]]; then
   export SYSS_IMPORT_NAME="${SYSS_IMPORT}"
 fi
@@ -76,8 +80,10 @@ cmd=(
   "${PYTHON_BIN}" -m agent_edge.syss_ocr_once
   --input "${INPUT}"
   --output-root "${OUTPUT_ROOT}"
-  --syss-project-dir "${SYSS_PROJECT_DIR}"
 )
+if [[ -n "${SYSS_PROJECT_DIR:-}" ]]; then
+  cmd+=(--syss-project-dir "${SYSS_PROJECT_DIR}")
+fi
 if [[ -n "${SYSS_IMPORT:-}" ]]; then
   cmd+=(--syss-import-name "${SYSS_IMPORT}")
 fi

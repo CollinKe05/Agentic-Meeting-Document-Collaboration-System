@@ -7,13 +7,21 @@ PROMPT="${*:-Please read demo_input.txt and count the length of my input.}"
 
 cd "$PROJECT_DIR"
 
+CONDA_CANDIDATES=()
 if command -v conda >/dev/null 2>&1; then
-  CONDA_BIN="$(command -v conda)"
-elif [ -x "$HOME/miniforge3/bin/conda" ]; then
-  CONDA_BIN="$HOME/miniforge3/bin/conda"
-elif [ -x "/root/miniforge3/bin/conda" ]; then
-  CONDA_BIN="/root/miniforge3/bin/conda"
-else
+  CONDA_CANDIDATES+=("$(command -v conda)")
+fi
+CONDA_CANDIDATES+=("$HOME/miniforge3/bin/conda" "/root/miniforge3/bin/conda")
+
+CONDA_BIN=""
+for candidate in "${CONDA_CANDIDATES[@]}"; do
+  if [ -x "$candidate" ] && "$candidate" env list | awk '{print $1}' | grep -qx "$ENV_NAME"; then
+    CONDA_BIN="$candidate"
+    break
+  fi
+done
+
+if [ -z "$CONDA_BIN" ]; then
   if [ "$(id -u)" -ne 0 ] && command -v sudo >/dev/null 2>&1; then
     echo "conda was not found for user $(id -un). Re-running with sudo because the MVP may be installed under root."
     exec sudo -E bash "$0" "$@"

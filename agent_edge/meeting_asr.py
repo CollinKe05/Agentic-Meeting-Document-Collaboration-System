@@ -15,7 +15,7 @@ from . import context_store
 from .paths import PROJECT_ROOT, WORKSPACE_DIR
 
 
-ASR_DIR = Path(os.environ.get("SHERPA_ASR_DIR", PROJECT_ROOT / "sherpa_asr" / "sherpa_asr")).expanduser()
+ASR_DIR = Path(os.environ.get("SHERPA_ASR_DIR", PROJECT_ROOT / "sherpa_asr")).expanduser()
 DEFAULT_TRANSCRIPT_LIMIT = 20000
 ASR_RUNTIME_DIR = PROJECT_ROOT / ".runtime" / "asr"
 MEETING_RECORDS_DIR = WORKSPACE_DIR / "meeting_records"

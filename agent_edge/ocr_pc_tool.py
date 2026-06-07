@@ -8,7 +8,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from .heavy_runtime import ManagedProcessError, create_resource_token, run_ocr_blocking
+from .heavy_runtime import ManagedProcessError, create_resource_token, run_interruptible_process, run_ocr_blocking
 from .ocr_memory import record_ocr_result
 from .paths import PROJECT_ROOT, WORKSPACE_DIR, safe_child_path
 
@@ -39,50 +39,51 @@ def parse_document_with_ocr_pc(args: dict[str, Any]) -> dict[str, Any]:
     output_root.mkdir(parents=True, exist_ok=True)
 
     task_id = str(args.get("task_id") or uuid.uuid4().hex[:12])
-    token = create_resource_token(task_id, "OCR_RUNNING")
     timeout_seconds = float(args.get("timeout_seconds") or os.environ.get("OCR_PC_TIMEOUT_SECONDS", "1800"))
     restart_llama = bool(args.get("restart_llama", True))
-    callback_url = str(
-        args.get("callback_url")
-        or os.environ.get("AGENT_RESOURCE_CALLBACK_URL")
-        or "http://127.0.0.1:7860/api/runtime/resource"
-    )
+    callback_url = str(args.get("callback_url") or os.environ.get("AGENT_RESOURCE_CALLBACK_URL") or "").strip()
 
     log_path = output_root / "_logs" / f"{input_path.stem}-{int(time.time())}.log"
     result_path = output_root / f"{input_path.stem}_ocr_result.json"
     backend = _resolve_ocr_backend(args)
-    runner_module = "agent_edge.syss_ocr_runner" if backend == "syss" else "agent_edge.ocr_pc_runner"
-    command = [
-        _python_for_ocr(),
-        "-m",
-        runner_module,
-        "--input",
-        str(input_path),
-        "--output-root",
-        str(output_root),
-        "--task-id",
-        task_id,
-        "--token",
-        token,
-        "--callback-url",
-        callback_url,
-    ]
+    command, token = _build_ocr_command(
+        backend=backend,
+        input_path=input_path,
+        output_root=output_root,
+        task_id=task_id,
+        callback_url=callback_url,
+    )
 
     env = os.environ.copy()
     if backend == "ocr_pc":
-        env.setdefault("OCR_PC_PROJECT_DIR", str(PROJECT_ROOT / "OCR_pc" / "OCR_pc"))
+        legacy_dir = _legacy_ocr_pc_project_dir()
+        if not legacy_dir.exists():
+            raise FileNotFoundError(
+                f"Legacy OCR_pc backend was requested, but OCR_pc is not present: {legacy_dir}. "
+                "Use AGENT_OCR_BACKEND=syss or leave AGENT_OCR_BACKEND unset."
+            )
+        env.setdefault("OCR_PC_PROJECT_DIR", str(legacy_dir))
 
     try:
-        result = run_ocr_blocking(
-            command,
-            cwd=PROJECT_ROOT,
-            env=env,
-            timeout_seconds=timeout_seconds,
-            log_path=log_path,
-            restart_llama=restart_llama,
-            token=token,
-            task_id=task_id,
-        )
+        if token:
+            result = run_ocr_blocking(
+                command,
+                cwd=PROJECT_ROOT,
+                env=env,
+                timeout_seconds=timeout_seconds,
+                log_path=log_path,
+                restart_llama=restart_llama,
+                token=token,
+                task_id=task_id,
+            )
+        else:
+            result = run_interruptible_process(
+                command,
+                cwd=PROJECT_ROOT,
+                env=env,
+                timeout_seconds=timeout_seconds,
+                log_path=log_path,
+            )
     except ManagedProcessError as exc:
         payload = _read_result_payload(result_path)
         return {
@@ -122,6 +123,52 @@ def _resolve_output_root(args: dict[str, Any]) -> Path:
     return safe_child_path(WORKSPACE_DIR, output_arg)
 
 
+def _build_ocr_command(
+    *,
+    backend: str,
+    input_path: Path,
+    output_root: Path,
+    task_id: str,
+    callback_url: str,
+) -> tuple[list[str], str | None]:
+    if backend == "syss" and not callback_url:
+        return (
+            [
+                _python_for_ocr(),
+                "-m",
+                "agent_edge.syss_ocr_once",
+                "--input",
+                str(input_path),
+                "--output-root",
+                str(output_root),
+            ],
+            None,
+        )
+    if not callback_url:
+        raise ValueError("Legacy OCR_pc backend requires AGENT_RESOURCE_CALLBACK_URL or callback_url.")
+
+    token = create_resource_token(task_id, "OCR_RUNNING")
+    runner_module = "agent_edge.syss_ocr_runner" if backend == "syss" else "agent_edge.ocr_pc_runner"
+    return (
+        [
+            _python_for_ocr(),
+            "-m",
+            runner_module,
+            "--input",
+            str(input_path),
+            "--output-root",
+            str(output_root),
+            "--task-id",
+            task_id,
+            "--token",
+            token,
+            "--callback-url",
+            callback_url,
+        ],
+        token,
+    )
+
+
 def _python_for_ocr() -> str:
     configured = os.environ.get("OCR_PC_PYTHON")
     if configured:
@@ -140,9 +187,21 @@ def _resolve_ocr_backend(args: dict[str, Any]) -> str:
         raise ValueError(f"AGENT_OCR_BACKEND must be one of: {', '.join(sorted(OCR_BACKENDS))}")
     if requested != "auto":
         return requested
+    if _native_syss_is_available():
+        return "syss"
     if _syss_is_configured():
         return "syss"
     return "ocr_pc"
+
+
+def _native_syss_is_available() -> bool:
+    return (PROJECT_ROOT / "sys_core" / "syss" / "config.py").is_file() and (
+        PROJECT_ROOT / "sys_core" / "syss" / "pipeline.py"
+    ).is_file()
+
+
+def _legacy_ocr_pc_project_dir() -> Path:
+    return Path(os.environ.get("OCR_PC_PROJECT_DIR", PROJECT_ROOT / "OCR_pc" / "OCR_pc")).expanduser().resolve()
 
 
 def _syss_is_configured() -> bool:

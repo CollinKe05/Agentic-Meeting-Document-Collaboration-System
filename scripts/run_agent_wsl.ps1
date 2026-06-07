@@ -24,4 +24,4 @@ else {
     throw "Only Windows drive paths are supported by this helper: $projectDir"
 }
 
-& wsl.exe -d "$distro" -u root --cd "$wslProjectDir" bash scripts/run_wsl.sh "$promptText"
+& wsl.exe -d "$distro" --cd "$wslProjectDir" bash scripts/run_wsl.sh "$promptText"

@@ -4,6 +4,7 @@ import atexit
 import hashlib
 import json
 import os
+import re
 import signal
 import subprocess
 import threading
@@ -90,8 +91,8 @@ def get_llama_cpp_model() -> str:
 def get_llama_cpp_model_path() -> Path:
     selected = _load_selected_llama_model()
     if selected and selected.get("path"):
-        return Path(str(selected["path"])).expanduser()
-    return Path(os.environ.get("LLAMA_CPP_MODEL_PATH", str(DEFAULT_LLAMA_CPP_MODEL_PATH))).expanduser()
+        return _platform_path(str(selected["path"]))
+    return _platform_path(os.environ.get("LLAMA_CPP_MODEL_PATH", str(DEFAULT_LLAMA_CPP_MODEL_PATH)))
 
 
 def list_llama_cpp_models() -> list[dict[str, Any]]:
@@ -157,13 +158,19 @@ def select_llama_cpp_model(model_id: str) -> dict[str, Any]:
 def get_llama_cpp_bin() -> Path:
     configured = os.environ.get("LLAMA_CPP_BIN")
     if configured:
-        return Path(configured).expanduser()
+        return _platform_path(configured)
 
-    candidates = [
-        RUNTIME_DIR / "llama.cpp" / "build" / "bin" / "llama-server",
-        RUNTIME_DIR / "llama.cpp" / "build" / "bin" / "Release" / "llama-server",
-        RUNTIME_DIR / "llama.cpp" / "build" / "bin" / "llama-server.exe",
-    ]
+    if os.name == "nt":
+        candidates = [
+            RUNTIME_DIR / "llama.cpp" / "build" / "bin" / "llama-server.exe",
+            RUNTIME_DIR / "llama.cpp" / "build" / "bin" / "Release" / "llama-server.exe",
+        ]
+    else:
+        candidates = [
+            RUNTIME_DIR / "llama.cpp" / "build" / "bin" / "llama-server",
+            RUNTIME_DIR / "llama.cpp" / "build" / "bin" / "Release" / "llama-server",
+            RUNTIME_DIR / "llama.cpp" / "build" / "bin" / "llama-server.exe",
+        ]
     for candidate in candidates:
         if candidate.exists():
             return candidate
@@ -599,7 +606,19 @@ def _load_selected_llama_model() -> dict[str, Any] | None:
     path = str(payload.get("path") or "").strip()
     if not path:
         return None
+    payload["path"] = str(_platform_path(path))
     return payload
+
+
+def _platform_path(value: str) -> Path:
+    raw = str(value or "").strip()
+    if os.name == "nt":
+        match = re.match(r"^/mnt/([A-Za-z])/(.*)$", raw)
+        if match:
+            drive = match.group(1).upper()
+            rest = match.group(2).replace("/", "\\")
+            return Path(f"{drive}:\\{rest}").expanduser()
+    return Path(raw).expanduser()
 
 
 def _llama_model_search_dirs() -> list[Path]:

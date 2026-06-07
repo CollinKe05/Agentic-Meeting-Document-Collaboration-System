@@ -41,7 +41,15 @@ else
 fi
 
 echo "== conda agent =="
-if [ -x /root/miniforge3/bin/conda ]; then
+if command -v conda >/dev/null 2>&1; then
+  CONDA_BIN="$(command -v conda)"
+elif [ -x "$HOME/miniforge3/bin/conda" ]; then
+  CONDA_BIN="$HOME/miniforge3/bin/conda"
+elif [ -x /root/miniforge3/bin/conda ]; then
+  CONDA_BIN="/root/miniforge3/bin/conda"
+fi
+
+if [ -n "${CONDA_BIN:-}" ]; then
   CHECK_SCRIPT="$(mktemp)"
   cat > "$CHECK_SCRIPT" <<'PY'
 import importlib
@@ -72,8 +80,8 @@ if missing:
     raise SystemExit(1)
 print("python deps ok")
 PY
-  /root/miniforge3/bin/conda run -n agent python "$CHECK_SCRIPT"
+  "$CONDA_BIN" run -n "${ENV_NAME:-agent}" python "$CHECK_SCRIPT"
   rm -f "$CHECK_SCRIPT"
 else
-  echo "missing /root/miniforge3/bin/conda"
+  echo "conda: missing"
 fi
