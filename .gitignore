@@ -19,3 +19,10 @@ mineru/
 *.onnx
 
 *.wav
+
+# Runtime / generated files
+workspace_files/uploads/
+workspace_files/ocr_outputs/
+workspace_files/ocr_summary_outputs/
+sherpa_asr/sherpa_asr/Â¼Òô¼ÇÂ¼_*.txt
+
