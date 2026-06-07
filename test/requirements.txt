@@ -1,0 +1,10 @@
+numpy
+opencv-python-headless
+Pillow
+onnxruntime
+PyMuPDF
+torch
+transformers
+pyclipper
+shapely
+pycryptodome

@@ -14,17 +14,15 @@ class SystemConfig:
     layoutreader_model: str = ""
     char_dict: str = ""
     # BPU 模型 (RDK X5)
-    bpu_runtime_dir: str = ""
     bpu_det_model: str = ""
     bpu_rec_model: str = ""
-    bpu_dict: str = ""
 
     # ── 阈值 ──
     layout_conf: float = 0.2
     layout_iou: float = 0.5
     ocr_rec_thresh: float = 0.5
     block_score_filter: float = 0.5
-    dpi: int = 200
+    dpi: int = 300
 
     # ── LLM ──
     ollama_model: str = "qwen2.5:1.5b"
@@ -41,7 +39,11 @@ class SystemConfig:
         if not self.yolo_model:
             self.yolo_model = os.environ.get("SYSS_YOLO_MODEL", "")
         if not self.yolo_model:
-            p = m / "doclayout_yolo_docstructbench_imgsz1024.onnx"
+            p = m / "yolov8n_layout_general6.onnx"
+            if not p.exists():
+                p = m / "doclayout_yolo_docstructbench_imgsz1024_fp16.onnx"
+            if not p.exists():
+                p = m / "doclayout_yolo_docstructbench_imgsz1024.onnx"
             if p.exists():
                 self.yolo_model = str(p)
 
@@ -55,6 +57,7 @@ class SystemConfig:
         if not self.char_dict:
             self.char_dict = os.environ.get("SYSS_CHAR_DICT", "")
         if not self.char_dict:
+            # 默认使用中文字典 (参照 PaddleOCR 官方做法)
             p = m / "ppocrv4" / "ppocr_keys_v1.txt"
             if p.exists():
                 self.char_dict = str(p)
@@ -66,19 +69,8 @@ class SystemConfig:
             if p.exists():
                 self.layoutreader_model = str(p)
 
-        if not self.bpu_runtime_dir:
-            self.bpu_runtime_dir = os.environ.get("SYSS_BPU_RUNTIME_DIR", "")
-        if not self.bpu_runtime_dir:
-            p = Path("/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/runtime/python")
-            if p.exists():
-                self.bpu_runtime_dir = str(p)
-
         if not self.bpu_det_model:
             self.bpu_det_model = os.environ.get("SYSS_BPU_DET", "")
-        if not self.bpu_det_model:
-            p = Path("/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/model/en_PP-OCRv3_det_640x640_nv12.bin")
-            if p.exists():
-                self.bpu_det_model = str(p)
         if not self.bpu_det_model:
             p = m / "en_PP-OCRv3_det_640x640_nv12.bin"
             if p.exists():
@@ -87,27 +79,9 @@ class SystemConfig:
         if not self.bpu_rec_model:
             self.bpu_rec_model = os.environ.get("SYSS_BPU_REC", "")
         if not self.bpu_rec_model:
-            p = Path("/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/model/rec_ppocr_cn.bin")
-            if p.exists():
-                self.bpu_rec_model = str(p)
-        if not self.bpu_rec_model:
-            p = m / "rec_ppocr_cn.bin"
-            if p.exists():
-                self.bpu_rec_model = str(p)
-        if not self.bpu_rec_model:
-            p = Path("/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/model/en_PP-OCRv3_rec_48x320_rgb.bin")
-            if p.exists():
-                self.bpu_rec_model = str(p)
-        if not self.bpu_rec_model:
-            p = m / "en_PP-OCRv3_rec_48x320_rgb.bin"
-            if p.exists():
-                self.bpu_rec_model = str(p)
-
-        if not self.bpu_dict:
-            self.bpu_dict = os.environ.get("SYSS_BPU_DICT", "")
-        if not self.bpu_dict:
-            p = Path("/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/runtime/python/dict.txt")
-            if p.exists():
-                self.bpu_dict = str(p)
-        if not self.bpu_dict and self.char_dict:
-            self.bpu_dict = self.char_dict
+            # 中文识别模型优先 (rec_ppocr_cn.bin)，其次英文
+            for name in ("rec_ppocr_cn.bin", "en_PP-OCRv3_rec_48x320_rgb.bin"):
+                p = m / name
+                if p.exists():
+                    self.bpu_rec_model = str(p)
+                    break

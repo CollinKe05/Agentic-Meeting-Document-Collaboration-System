@@ -12,7 +12,7 @@ CRYPTO_SUFFIXES = {".md", ".markdown", ".txt"}
 
 def crypto_status() -> dict[str, Any]:
     try:
-        from syss_f16yolo_sere.utils.crypto_utils import DEFAULT_KEY  # noqa: F401
+        from utils.crypto_utils import DEFAULT_KEY  # noqa: F401
     except ModuleNotFoundError as exc:
         if exc.name == "Crypto":
             return {
@@ -70,7 +70,7 @@ def inspect_workspace_file(payload: dict[str, Any]) -> dict[str, Any]:
 
 def _crypto():
     try:
-        from syss_f16yolo_sere.utils import crypto_utils
+        from utils import crypto_utils
     except ModuleNotFoundError as exc:
         if exc.name == "Crypto":
             raise RuntimeError("Missing pycryptodome. Install with: python -m pip install pycryptodome") from exc

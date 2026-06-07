@@ -19,10 +19,15 @@ def _detect_columns(all_boxes, gap_ratio=0.12):
     if len(all_boxes) < 4:
         return []
 
-    x_centers = sorted((b[0] + b[2]) / 2 for b in all_boxes)
     all_x = [b[0] for b in all_boxes] + [b[2] for b in all_boxes]
     page_min, page_max = min(all_x), max(all_x)
     page_w = page_max - page_min if page_max > page_min else 1
+
+    # 排除极宽框 (>80%页宽) 的x中心, 它们是OCR跨栏错误, 会填充栏间间隙
+    narrow_boxes = [b for b in all_boxes if (b[2] - b[0]) < page_w * 0.8]
+    if len(narrow_boxes) < 3:
+        return []
+    x_centers = sorted((b[0] + b[2]) / 2 for b in narrow_boxes)
 
     # 只考虑页面中间 20%-80% 区域的分割点，忽略边缘间隙
     best_gap = 0
@@ -46,6 +51,45 @@ def _detect_columns(all_boxes, gap_ratio=0.12):
         if left_count >= len(x_centers) * 0.15 and right_count >= len(x_centers) * 0.15:
             return [best_split]
 
+    return []
+
+
+def _detect_columns_from_blocks(blocks, spanning_blocks, page_w, gap_ratio=0.08):
+    """基于block级x中心的列检测 — 比文本框级更稳定, 不受居中碎片影响"""
+    block_x_centers = []
+    for bi, block in enumerate(blocks):
+        if bi in spanning_blocks:
+            continue
+        bb = block["block_info"]["bbox"]
+        bw = bb[2] - bb[0]
+        if bw <= 0 or bw > page_w * 0.8:
+            continue
+        xc = (bb[0] + bb[2]) / 2
+        block_x_centers.append(xc)
+
+    if len(block_x_centers) < 2:
+        return []
+
+    block_x_centers.sort()
+    page_min = min(block_x_centers)
+
+    best_gap = 0
+    best_split = 0
+    for i in range(1, len(block_x_centers)):
+        mid = (block_x_centers[i] + block_x_centers[i - 1]) / 2
+        rel = (mid - page_min) / page_w if page_w > 0 else 0
+        if rel < 0.2 or rel > 0.8:
+            continue
+        gap = block_x_centers[i] - block_x_centers[i - 1]
+        if gap > best_gap:
+            best_gap = gap
+            best_split = mid
+
+    if best_gap > page_w * gap_ratio:
+        left_count = sum(1 for x in block_x_centers if x < best_split)
+        right_count = len(block_x_centers) - left_count
+        if left_count >= 1 and right_count >= 1:
+            return [best_split]
     return []
 
 
@@ -110,20 +154,20 @@ class FastReadingOrderSorter:
                     "blocks": page_data["blocks"]})
                 continue
 
-            # 检测分栏 (间隙 > 页面宽度12%)
-            splits = _detect_columns(all_boxes)
+            # 计算页宽，识别通栏block
+            page_w = max(b[2] for b in all_boxes) - min(b[0] for b in all_boxes)
+            spanning_blocks = set()
+            for bi, block in enumerate(page_data["blocks"]):
+                bb = block["block_info"]["bbox"]
+                if (bb[2] - bb[0]) > page_w * 0.55:
+                    spanning_blocks.add(bi)
+
+            # 列检测: 用非通栏block的x中心间距，比文本框级别更稳定
+            splits = _detect_columns_from_blocks(page_data["blocks"], spanning_blocks, page_w)
 
             if splits:
                 # 多栏: 分离跨栏元素(标题等) + 左栏 + 右栏
                 split_x = splits[0]
-                page_w = max(b[2] for b in all_boxes) - min(b[0] for b in all_boxes)
-
-                # block 级别: 宽度 > 55% 页宽 → 通栏
-                spanning_blocks = set()
-                for bi, block in enumerate(page_data["blocks"]):
-                    bb = block["block_info"]["bbox"]
-                    if (bb[2] - bb[0]) > page_w * 0.55:
-                        spanning_blocks.add(bi)
 
                 spanning = []
                 left_items = []
