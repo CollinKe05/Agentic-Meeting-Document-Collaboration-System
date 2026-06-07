@@ -530,6 +530,30 @@
       });
       featuresPanel.appendChild(button);
     }
+    appendCryptoFeatureCard();
+  }
+
+  function appendCryptoFeatureCard() {
+    if (!featuresPanel) return;
+    const card = document.createElement('div');
+    card.className = 'w-full p-2.5 rounded-lg border border-amber-100 bg-amber-50/40';
+    card.innerHTML = `
+      <div class="flex items-start gap-2.5">
+        <div class="w-7 h-7 rounded bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">${iconSvg('file', 'w-4 h-4')}</div>
+        <div class="min-w-0 flex-1">
+          <h3 class="font-medium text-xs text-gray-800">Markdown 加密工具</h3>
+          <p class="text-[10px] text-gray-500 mt-0.5">人工选择文件，不进入 Agent 任务规划。</p>
+          <div class="grid grid-cols-2 gap-1.5 mt-2">
+            <button type="button" data-crypto-op="encrypt" class="px-2 py-1.5 rounded-md bg-white border border-amber-200 text-[11px] text-amber-800 hover:bg-amber-100 focus:outline-none">加密</button>
+            <button type="button" data-crypto-op="decrypt" class="px-2 py-1.5 rounded-md bg-white border border-amber-200 text-[11px] text-amber-800 hover:bg-amber-100 focus:outline-none">解密</button>
+          </div>
+        </div>
+      </div>
+    `;
+    card.querySelectorAll('[data-crypto-op]').forEach(button => {
+      button.addEventListener('click', () => chooseCryptoFile(button.getAttribute('data-crypto-op')));
+    });
+    featuresPanel.appendChild(card);
   }
 
   async function loadSkill() {
@@ -734,6 +758,41 @@
 
   function requestOcrSummaryExport(feature) {
     submitTask(feature.prompt, []);
+  }
+
+  function chooseCryptoFile(operation) {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.md,.markdown,.txt,text/markdown,text/plain';
+    input.addEventListener('change', () => {
+      const file = input.files && input.files[0];
+      if (file) runCryptoOperation(operation, file);
+    }, { once: true });
+    input.click();
+  }
+
+  async function runCryptoOperation(operation, file) {
+    try {
+      const statusResponse = await fetch('/api/crypto/status');
+      const status = await statusResponse.json();
+      if (!status.ok || !status.available) {
+        throw new Error(status.error || '加密模块不可用');
+      }
+      const key = window.prompt('请输入 Markdown 加密密钥。留空则使用服务端 MARKDOWN_ENCRYPT_KEY 或默认密钥。', '');
+      if (key === null) return;
+      const uploaded = await uploadFiles([file]);
+      const target = uploaded[0];
+      const endpoint = operation === 'decrypt' ? '/api/crypto/decrypt' : '/api/crypto/encrypt';
+      const result = await postJson(endpoint, { path: target.path, key });
+      const label = operation === 'decrypt' ? '解密' : '加密';
+      toast(`${label}完成：${result.output_path}`);
+      appendMessage(
+        'agent',
+        `Markdown ${label}完成。\n源文件：${target.path}\n输出文件：${result.output_path}\n绝对路径：${result.absolute_output_path}`
+      );
+    } catch (error) {
+      appendMessage('error', `Markdown 加密工具失败：${error.message}`);
+    }
   }
 
   function updateVoiceButton() {

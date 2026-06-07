@@ -138,41 +138,51 @@ def encrypt_text(plain_text: str, key: str = None) -> str:
 def decrypt_text(enc_text: str, key: str = None) -> str:
     if key is None:
         key = os.environ.get("MARKDOWN_ENCRYPT_KEY", DEFAULT_KEY)
-    try:
-        data = json.loads(enc_text)
-        protocol = data.get("metadata", {}).get("protocol", 1)
-        if protocol == 1:
-            return decrypt_text_protocol1(data["data"], key)
-        elif protocol == 2:
-            return decrypt_text_protocol2(enc_text, key)
-        elif protocol == 3:
-            return decrypt_text_protocol3(enc_text, key)
-        else:
-            raise ValueError(f"未知的加密协议: {protocol}")
-    except json.JSONDecodeError:
+    data = _decode_envelope(enc_text)
+    if data is None:
         return decrypt_text_protocol1(enc_text, key)
+
+    protocol = data.get("metadata", {}).get("protocol", 1)
+    if protocol == 1:
+        return decrypt_text_protocol1(data["data"], key)
+    if protocol == 2:
+        return decrypt_text_protocol2(enc_text, key)
+    if protocol == 3:
+        return decrypt_text_protocol3(enc_text, key)
+    raise ValueError(f"Unknown encryption protocol: {protocol}")
+
+
+def _decode_envelope(enc_text: str) -> dict | None:
+    stripped = enc_text.strip()
+    try:
+        data = json.loads(stripped)
+        if isinstance(data, dict):
+            return data
+    except json.JSONDecodeError:
+        pass
+
+    try:
+        data = json.loads(base64.b64decode(stripped).decode("utf-8"))
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        return None
+    return None
 
 
 # ── 文件级辅助函数 ──
 
 def is_encrypted(content: str) -> bool:
-    """检测内容是否为加密密文"""
+    """Return True when content looks like ciphertext from this module."""
     stripped = content.strip()
     if not stripped:
         return False
-    # 明文 Markdown 几乎都以 # 开头
-    if stripped.startswith("#"):
-        return False
-    # 尝试 JSON 解析, 检查是否有加密协议标识
     try:
-        data = json.loads(stripped)
-        if "metadata" in data and "protocol" in data.get("metadata", {}):
+        data = _decode_envelope(stripped)
+        if data and "metadata" in data and "protocol" in data.get("metadata", {}):
             return True
-    except json.JSONDecodeError:
+    except Exception:
         pass
-    # 长度较长且不以 markdown 标记开头, 可能是旧版 base64 密文
-    if len(stripped) > 100:
-        return True
     return False
 
 
