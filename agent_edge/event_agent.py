@@ -109,6 +109,14 @@ def features() -> list[dict[str, Any]]:
             ),
         },
         {
+            "id": "ocr-summary-export",
+            "title": "OCR 总结导出",
+            "description": "基于当前或最近一次 OCR 原文生成 JSON、Markdown、Typst 和 PDF。",
+            "needsFile": False,
+            "action": "ocr-summary-export",
+            "prompt": "请基于当前或最近一次 OCR 原文生成 OCR 总结导出文档，输出 JSON、Markdown、Typst 和 PDF 路径。",
+        },
+        {
             "id": "summarize",
             "title": "内容摘要生成",
             "description": "对输入内容生成结构化摘要。",

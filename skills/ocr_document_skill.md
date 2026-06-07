@@ -58,3 +58,21 @@ Action Input:
 - “把扫描件转 Markdown”：调用 `PARSE_DOCUMENT_WITH_OCR_PC`。
 - “总结 OCR 结果”：先调用 OCR，再基于 `markdown_preview` 或 `markdown_path` 总结。
 - “根据上一次 OCR 结果回答”：调用 `READ_LAST_OCR_RESULT` 读取最近 OCR Markdown，再基于内容回答。
+ 
+## OCR Summary Export
+
+- OCR parsing and OCR summary export are separate actions.
+- `PARSE_DOCUMENT_WITH_OCR_PC` parses the source document, writes Markdown/content_list/blocks/images, and may return only a rough LLM summary.
+- When the user asks to export an OCR summary, generate JSON/Markdown/Typst/PDF, or format OCR results as a document, use `EXPORT_OCR_SUMMARY`.
+- `EXPORT_OCR_SUMMARY` reads the OCR Markdown source text. It should not generate documents from the rough summary alone.
+- The tool first uses OCR artifacts from the current task; if none exist, it uses the latest OCR result.
+
+Recommended action:
+
+```text
+Action: USE_TOOL
+Action Input:
+{"tool_name": "EXPORT_OCR_SUMMARY", "args": {"template": "standard", "output_format": "pdf"}}
+```
+
+The final answer should include `json_path`, `markdown_path`, `typ_path`, `pdf_path`, `source_markdown_path`, and `source_copy_path`. If typst is not installed, explain that PDF was not generated while JSON/Markdown/Typst were generated.

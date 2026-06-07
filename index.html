@@ -33,6 +33,131 @@
             border-color: #3b82f6; /* blue-500 */
             background-color: #eff6ff; /* blue-50 */
         }
+
+        :root {
+            --shell-pad: 1rem;
+            --shell-gap: 1rem;
+            --thought-max: min(38vh, 360px);
+            --thought-steps-max: min(30vh, 280px);
+        }
+
+        main.grid {
+            gap: var(--shell-gap);
+            padding: var(--shell-pad);
+        }
+
+        #agent-thought-process {
+            max-height: var(--thought-max);
+            overflow: hidden;
+        }
+
+        #agent-thought-process:not(.hidden) {
+            display: flex;
+            flex-direction: column;
+        }
+
+        #thought-steps {
+            max-height: var(--thought-steps-max);
+            overflow-y: auto;
+            padding-right: 0.25rem;
+        }
+
+        #thought-steps > div,
+        #thought-steps span {
+            min-width: 0;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
+
+        body.edge-compact {
+            font-size: 14px;
+        }
+
+        body.edge-compact header {
+            height: 3rem;
+            padding-left: 1rem;
+            padding-right: 1rem;
+        }
+
+        body.edge-compact header h1 {
+            font-size: 1.05rem;
+            line-height: 1.25rem;
+        }
+
+        body.edge-compact main.grid {
+            --shell-pad: 0.75rem;
+            --shell-gap: 0.75rem;
+            grid-template-columns: minmax(230px, 0.82fr) minmax(480px, 1.75fr) minmax(230px, 0.86fr);
+        }
+
+        body.edge-compact main.grid > aside,
+        body.edge-compact main.grid > section {
+            grid-column: auto / auto;
+        }
+
+        body.edge-compact #chat-messages {
+            padding: 1rem;
+        }
+
+        body.edge-compact #agent-thought-process {
+            padding: 0.75rem;
+            --thought-max: min(32vh, 300px);
+            --thought-steps-max: min(24vh, 220px);
+        }
+
+        body.edge-compact aside:first-child textarea {
+            font-size: 11px;
+            line-height: 1.45;
+        }
+
+        body.edge-dense {
+            font-size: 13px;
+        }
+
+        body.edge-dense main.grid {
+            --shell-pad: 0.5rem;
+            --shell-gap: 0.5rem;
+            grid-template-columns: minmax(205px, 0.72fr) minmax(500px, 2fr) minmax(205px, 0.72fr);
+        }
+
+        body.edge-dense #chat-messages {
+            padding: 0.75rem;
+        }
+
+        body.edge-dense #agent-thought-process {
+            --thought-max: min(30vh, 250px);
+            --thought-steps-max: min(22vh, 185px);
+        }
+
+        body.edge-dense .rounded-xl {
+            border-radius: 0.6rem;
+        }
+
+        @media (max-width: 980px) {
+            body main.grid {
+                grid-template-columns: 1fr;
+                overflow-y: auto;
+            }
+
+            body main.grid > aside,
+            body main.grid > section {
+                grid-column: auto / auto;
+                min-height: 260px;
+            }
+
+            body main.grid > section {
+                min-height: 72vh;
+            }
+
+            body header {
+                height: auto;
+                min-height: 3rem;
+                flex-wrap: wrap;
+                gap: 0.5rem;
+                padding-top: 0.5rem;
+                padding-bottom: 0.5rem;
+            }
+        }
     </style>
 </head>
 <body class="h-screen flex flex-col overflow-hidden text-gray-800">
@@ -629,14 +754,14 @@
 
         function addThoughtStep(text, svgIcon, isLast) {
             const stepEl = document.createElement('div');
-            stepEl.className = 'flex items-start gap-2 animate-fade-in-up';
+            stepEl.className = 'flex items-start gap-2 animate-fade-in-up min-w-0';
             
             stepEl.innerHTML = `
                 <div class="mt-0.5 shrink-0">${svgIcon}</div>
-                <span class="text-gray-600">${text}</span>
+                <span class="text-gray-600 min-w-0">${text}</span>
             `;
             thoughtStepsContainer.appendChild(stepEl);
-            thoughtStepsContainer.parentElement.scrollTop = thoughtStepsContainer.parentElement.scrollHeight;
+            thoughtStepsContainer.scrollTop = thoughtStepsContainer.scrollHeight;
         }
 
         function toggleThoughtProcess() {

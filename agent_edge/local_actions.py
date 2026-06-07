@@ -8,6 +8,7 @@ from . import context_store, todo_store
 from .meeting_formatter import format_meeting_minutes
 from .ocr_memory import read_latest_ocr_result
 from .ocr_pc_tool import parse_document_with_ocr_pc
+from .ocr_summary_exporter import export_ocr_summary
 from .paths import (
     SKILLS_DIR,
     WORKSPACE_DIR,
@@ -125,6 +126,11 @@ def _execute_local_tool(tool_name: str, args: dict[str, Any], *, task_id: str | 
 
     if tool_name == "READ_LAST_OCR_RESULT":
         return json_observation(read_latest_ocr_result(args))
+
+    if tool_name == "EXPORT_OCR_SUMMARY":
+        if task_id and not args.get("task_id"):
+            args = {**args, "task_id": task_id}
+        return json_observation(export_ocr_summary(args))
 
     if tool_name == "SAFE_READ_TEXT_FILE":
         rel_path = str(args.get("path", ""))

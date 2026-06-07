@@ -571,7 +571,7 @@ def _deterministic_plan(user_input: str) -> list[dict[str, Any]]:
             ]
 
         if suffix in OCR_FILE_EXTENSIONS or "parse_document_with_ocr_pc" in lowered or "ocr" in lowered:
-            return [
+            plan = [
                 {
                     "id": 1,
                     "kind": "learn_skill",
@@ -590,6 +590,19 @@ def _deterministic_plan(user_input: str) -> list[dict[str, Any]]:
                     "attempts": 0,
                 },
             ]
+            if _should_export_ocr_summary(user_input):
+                plan.append(
+                    {
+                        "id": 3,
+                        "kind": "use_tool",
+                        "objective": "基于 OCR 原文生成 JSON/Markdown/Typst/PDF 总结文档。",
+                        "tool_name": "EXPORT_OCR_SUMMARY",
+                        "tool_input": {"template": "standard", "output_format": "pdf"},
+                        "status": "todo",
+                        "attempts": 0,
+                    }
+                )
+            return plan
 
         if suffix in TEXT_FILE_EXTENSIONS:
             return [
@@ -627,6 +640,27 @@ def _deterministic_plan(user_input: str) -> list[dict[str, Any]]:
                 "kind": "use_tool",
                 "objective": "基于当前会议记录生成会议纪要排版文件。",
                 "tool_name": "FORMAT_MEETING_MINUTES",
+                "tool_input": {"template": "standard", "output_format": "pdf"},
+                "status": "todo",
+                "attempts": 0,
+            },
+        ]
+
+    if _should_export_ocr_summary(user_input):
+        return [
+            {
+                "id": 1,
+                "kind": "learn_skill",
+                "objective": "学习 OCR 总结导出流程。",
+                "skill_file": "ocr_document_skill.md",
+                "status": "todo",
+                "attempts": 0,
+            },
+            {
+                "id": 2,
+                "kind": "use_tool",
+                "objective": "基于当前或最近一次 OCR 原文生成 JSON/Markdown/Typst/PDF 总结文档。",
+                "tool_name": "EXPORT_OCR_SUMMARY",
                 "tool_input": {"template": "standard", "output_format": "pdf"},
                 "status": "todo",
                 "attempts": 0,
@@ -741,6 +775,17 @@ def _should_format_meeting_minutes(user_input: str, path: str | None = None) -> 
         keyword in path_name for keyword in ("会议", "录音记录")
     )
     return has_format_intent and (has_meeting_intent or path_looks_meeting)
+
+
+def _should_export_ocr_summary(user_input: str) -> bool:
+    lowered = user_input.lower()
+    has_ocr = "ocr" in lowered or any(keyword in user_input for keyword in ("OCR", "识别结果", "解析结果", "文档识别"))
+    has_summary = any(keyword in lowered for keyword in ("summary", "summarize", "export", "typst", "pdf", "json", "markdown"))
+    has_summary = has_summary or any(keyword in user_input for keyword in ("总结", "摘要", "导出", "生成文档", "生成文件", "排版"))
+    has_doc_outputs = any(keyword in lowered for keyword in ("typst", "pdf", "json", "markdown")) or any(
+        keyword in user_input for keyword in ("JSON", "Markdown", "Typst", "PDF")
+    )
+    return has_ocr and has_summary and (has_doc_outputs or any(keyword in user_input for keyword in ("导出", "生成文档", "生成文件", "排版")))
 
 
 def _should_use_latest_ocr(user_input: str) -> bool:
@@ -973,16 +1018,44 @@ def _extract_final_answer(past_steps: list[tuple], user_input: str = "") -> list
         if tool_name == "SAFE_READ_TEXT_FILE" and "content" in payload:
             path = payload.get("path", "文件")
             content = str(payload.get("content", "")).rstrip("\n")
-            if _wants_content_summary(user_input):
-                answers.append(_summarize_read_content(path=str(path), content=content, user_input=user_input))
+            if _should_summarize_document_result(user_input):
+                answers.append(
+                    f"文档路径：{path}\n\n"
+                    + _summarize_read_content(path=str(path), content=content, user_input=user_input)
+                )
             else:
                 answers.append(f"已读取 {path}，内容为：{content}")
+        elif tool_name == "SAFE_WRITE_TEXT_FILE" and payload.get("path"):
+            answers.append(
+                "文件已生成。\n"
+                f"- 输出路径：{payload.get('path')}\n"
+                f"- 字节数：{payload.get('bytes')}"
+            )
         elif tool_name == "COUNT_TEXT_CHARS" and "chars" in payload:
             answers.append(f"字符统计结果：{payload['chars']} 个字符。")
         elif tool_name == "READ_LAST_OCR_RESULT" and "content" in payload:
             path = payload.get("path", "最近 OCR Markdown")
             content = str(payload.get("content", "")).rstrip("\n")
-            answers.append(_answer_from_ocr_content(path=str(path), content=content, user_input=user_input))
+            answers.append(
+                f"最近一次 OCR Markdown 路径：{path}\n\n"
+                + _answer_from_ocr_content(path=str(path), content=content, user_input=user_input)
+            )
+        elif tool_name == "EXPORT_OCR_SUMMARY":
+            typst_status = payload.get("typst") if isinstance(payload.get("typst"), dict) else {}
+            pdf_path = payload.get("pdf_path") or "未生成 PDF（可能未安装 typst）"
+            answers.append(
+                "OCR 总结导出完成。\n"
+                f"- 标题：{payload.get('title') or 'OCR 总结'}\n"
+                f"- 摘要：{payload.get('summary') or '暂无摘要'}\n"
+                f"- 输出目录：{payload.get('output_dir')}\n"
+                f"- JSON：{payload.get('json_path')}\n"
+                f"- Markdown：{payload.get('markdown_path')}\n"
+                f"- Typst：{payload.get('typ_path')}\n"
+                f"- PDF：{pdf_path}\n"
+                f"- OCR 原文：{payload.get('source_markdown_path')}\n"
+                f"- OCR 原文副本：{payload.get('source_copy_path')}\n"
+                f"- Typst 编译：{'成功' if typst_status.get('ok') else typst_status.get('error', '未编译')}"
+            )
         elif tool_name == "FORMAT_MEETING_MINUTES":
             typst_status = payload.get("typst") if isinstance(payload.get("typst"), dict) else {}
             pdf_path = payload.get("pdf_path") or "未生成 PDF（可能未安装 typst）"
@@ -998,6 +1071,12 @@ def _extract_final_answer(past_steps: list[tuple], user_input: str = "") -> list
                 f"- 桌面 PDF：{desktop_pdf_path}\n"
                 f"- Typst 编译：{'成功' if typst_status.get('ok') else typst_status.get('error', '未编译')}"
             )
+            if payload.get("summary") or payload.get("transcript_path"):
+                answers.append(
+                    "会议摘要与转写路径：\n"
+                    f"- 摘要：{str(payload.get('summary') or 'No summary generated.').strip()}\n"
+                    f"- 转写文本：{payload.get('transcript_path') or 'No transcript file generated.'}"
+                )
         elif tool_name in {"PARSE_DOCUMENT_WITH_OCR_PC", "OCR_PC_PARSE_DOCUMENT"}:
             md_path = payload.get("markdown_path") or "未生成 Markdown"
             content_path = payload.get("content_list_v2_path") or "未生成 content_list_v2"
@@ -1013,10 +1092,10 @@ def _extract_final_answer(past_steps: list[tuple], user_input: str = "") -> list
                 f"- 图片目录：{images_dir}\n"
                 f"- 文本块数量：{block_count}"
             )
-            if _wants_content_summary(user_input) and preview.strip():
+            if preview.strip():
                 answers.append(header + "\n\n" + _summarize_ocr_markdown(markdown_preview=preview, user_input=user_input))
             else:
-                answers.append(header)
+                answers.append(header + "\n\nOCR 未返回可用于总结的 Markdown 预览，暂时无法生成内容摘要。")
 
     return answers
 
@@ -1040,6 +1119,42 @@ def _wants_content_summary(user_input: str) -> bool:
     return any(keyword in lowered for keyword in keywords)
 
 
+def _should_summarize_document_result(user_input: str) -> bool:
+    if _wants_content_summary(user_input):
+        return True
+    lowered = user_input.lower()
+    ascii_keywords = {
+        "document",
+        "file",
+        "txt",
+        "md",
+        "markdown",
+        "pdf",
+        "ocr",
+        "parse",
+        "recognize",
+        "meeting",
+        "transcript",
+    }
+    if any(keyword in lowered for keyword in ascii_keywords):
+        return True
+    chinese_keywords = {
+        "文档",
+        "文件",
+        "识别",
+        "解析",
+        "读取",
+        "总结",
+        "摘要",
+        "分析",
+        "会议",
+        "转写",
+        "录音",
+        "纪要",
+    }
+    return any(keyword in user_input for keyword in chinese_keywords)
+
+
 def _summarize_read_content(*, path: str, content: str, user_input: str) -> str:
     if not content.strip():
         return f"已读取 {path}，但文件内容为空，无法生成摘要。"
@@ -1060,7 +1175,15 @@ def _summarize_read_content(*, path: str, content: str, user_input: str) -> str:
 
 请用中文输出最终结果。不要输出工具调用过程，不要输出 Action/Observation。
 """.strip()
-    return llm_call(prompt).strip()
+    try:
+        return llm_call(prompt).strip()
+    except Exception as exc:  # noqa: BLE001 - final response should survive local LLM stalls
+        return _fallback_document_digest(
+            title="LLM summary timed out or failed; returning an extractive digest.",
+            path=path,
+            content=content,
+            error=f"{type(exc).__name__}: {exc}",
+        )
 
 
 def _summarize_ocr_markdown(*, markdown_preview: str, user_input: str) -> str:
@@ -1080,7 +1203,15 @@ OCR Markdown 预览：
 
 请只输出最终结果，不要输出工具调用过程。
 """.strip()
-    return llm_call(prompt).strip()
+    try:
+        return llm_call(prompt).strip()
+    except Exception as exc:  # noqa: BLE001 - OCR result paths are still useful when LLM stalls
+        return _fallback_document_digest(
+            title="LLM OCR summary timed out or failed; returning an extractive digest.",
+            path="OCR markdown preview",
+            content=markdown_preview,
+            error=f"{type(exc).__name__}: {exc}",
+        )
 
 
 def _answer_from_ocr_content(*, path: str, content: str, user_input: str) -> str:
@@ -1103,7 +1234,52 @@ OCR Markdown 内容：
 
 请直接给出中文答案。不要输出 Action/Observation。
 """.strip()
-    return llm_call(prompt).strip()
+    try:
+        return llm_call(prompt).strip()
+    except Exception as exc:  # noqa: BLE001 - keep document QA usable without a responsive LLM
+        return _fallback_document_digest(
+            title="LLM OCR answer timed out or failed; returning an extractive digest.",
+            path=path,
+            content=content,
+            error=f"{type(exc).__name__}: {exc}",
+        )
+
+
+def _fallback_document_digest(*, title: str, path: str, content: str, error: str) -> str:
+    normalized_lines = []
+    for raw_line in content.replace("\r\n", "\n").splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if set(line) <= {"=", "-", "_", "*"}:
+            continue
+        normalized_lines.append(line)
+
+    headings = [line for line in normalized_lines if line.startswith("#")][:5]
+    bullets = [line for line in normalized_lines if line.startswith(("-", "*", "1.", "2.", "3."))][:8]
+    body = [line for line in normalized_lines if line not in headings and line not in bullets][:10]
+
+    parts = [
+        title,
+        f"- Path: {path}",
+        f"- LLM error: {error}",
+    ]
+    if headings:
+        parts.append("")
+        parts.append("Detected headings:")
+        parts.extend(f"- {item.lstrip('#').strip()}" for item in headings)
+    if bullets:
+        parts.append("")
+        parts.append("Key listed items:")
+        parts.extend(bullets)
+    if body:
+        parts.append("")
+        parts.append("Content excerpt:")
+        parts.extend(f"- {item[:240]}" for item in body)
+    if not headings and not bullets and not body:
+        parts.append("")
+        parts.append("No readable text was available for an extractive digest.")
+    return "\n".join(parts)
 
 
 def _json_payload(value: Any) -> dict[str, Any] | None:

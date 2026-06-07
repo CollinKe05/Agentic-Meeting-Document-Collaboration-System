@@ -34,6 +34,20 @@
   let meetingCollapsed = localStorage.getItem('agentMeetingCollapsed') === '1';
   let switchingModel = false;
 
+  function applyResponsiveDensity() {
+    const dpr = window.devicePixelRatio || 1;
+    const width = window.innerWidth || document.documentElement.clientWidth || 0;
+    const height = window.innerHeight || document.documentElement.clientHeight || 0;
+    const compact = dpr >= 1.2 || width < 1360 || height < 760;
+    const dense = dpr >= 1.45 || width < 1120 || height < 680;
+    const narrow = width < 980;
+
+    document.body.classList.toggle('edge-compact', compact);
+    document.body.classList.toggle('edge-dense', dense);
+    document.body.classList.toggle('edge-narrow', narrow);
+    document.documentElement.style.setProperty('--screen-dpr', dpr.toFixed(2));
+  }
+
   function escapeHtml(value) {
     return String(value)
       .replaceAll('&', '&amp;')
@@ -341,14 +355,14 @@
     if (!thoughtProcessPanel || !thoughtStepsContainer) return;
     thoughtProcessPanel.classList.remove('hidden');
     const step = document.createElement('div');
-    step.className = 'flex items-start gap-2 animate-fade-in-up';
+    step.className = 'flex items-start gap-2 animate-fade-in-up min-w-0';
     const isError = event.type === 'ERROR';
     step.innerHTML = `
       <div class="mt-0.5 shrink-0">${iconSvg(isError ? 'x' : 'ok', `w-4 h-4 ${isError ? 'text-red-500' : 'text-indigo-500'}`)}</div>
-      <span class="text-gray-600"><strong>${escapeHtml(event.title || event.type)}</strong>${event.message ? `：${escapeHtml(event.message)}` : ''}</span>
+      <span class="text-gray-600 min-w-0"><strong>${escapeHtml(event.title || event.type)}</strong>${event.message ? `：${escapeHtml(event.message)}` : ''}</span>
     `;
     thoughtStepsContainer.appendChild(step);
-    thoughtProcessPanel.scrollTop = thoughtProcessPanel.scrollHeight;
+    thoughtStepsContainer.scrollTop = thoughtStepsContainer.scrollHeight;
   }
 
   async function submitTask(promptText, files) {
@@ -499,6 +513,10 @@
         }
         if (feature.action === 'meeting-minutes-export') {
           requestMeetingMinutesExport(feature);
+          return;
+        }
+        if (feature.action === 'ocr-summary-export') {
+          requestOcrSummaryExport(feature);
           return;
         }
         if (feature.needsFile) {
@@ -714,6 +732,10 @@
     }
   }
 
+  function requestOcrSummaryExport(feature) {
+    submitTask(feature.prompt, []);
+  }
+
   function updateVoiceButton() {
     if (!voiceInputButton) return;
     voiceInputButton.className = `p-2.5 rounded-lg transition-colors focus:outline-none ${
@@ -815,6 +837,13 @@
     loadActiveContext();
     loadContexts();
   });
+
+  applyResponsiveDensity();
+  window.addEventListener('resize', applyResponsiveDensity);
+  window.addEventListener('orientationchange', applyResponsiveDensity);
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', applyResponsiveDensity);
+  }
 
   loadTasks();
   loadFeatures();
