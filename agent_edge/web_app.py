@@ -73,7 +73,16 @@ class AgentUIHandler(BaseHTTPRequestHandler):
             self._send_file(_ui_index_path(), "text/html; charset=utf-8")
             return
         if path == "/todo":
-            self._send_file(safe_child_path(TODO_UI_DIR, "index.html"), "text/html; charset=utf-8")
+            self._send_file(safe_child_path(PROJECT_ROOT, "schedule.html"), "text/html; charset=utf-8")
+            return
+        if path == "/schedule-runtime.js":
+            self._send_file(safe_child_path(PROJECT_ROOT, "schedule-runtime.js"), "application/javascript; charset=utf-8")
+            return
+        if path == "/todo/tailwind.min.js":
+            self._send_file(safe_child_path(PROJECT_ROOT, "tailwind.min.js"), "application/javascript; charset=utf-8")
+            return
+        if path == "/todo/schedule-runtime.js":
+            self._send_file(safe_child_path(PROJECT_ROOT, "schedule-runtime.js"), "application/javascript; charset=utf-8")
             return
         if path.startswith("/todo/"):
             rel = path.replace("/todo/", "", 1)

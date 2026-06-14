@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>日程管理 - Agent 控制中心</title>
+    <link rel="icon" href="data:,">
+    <script src="tailwind.min.js"></script>
+    <style>
+        :root {
+            color-scheme: light;
+        }
+
+        * {
+            letter-spacing: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans SC", sans-serif;
+            background: #f3f4f6;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 999px;
+        }
+
+        .timeline-dot {
+            position: relative;
+        }
+
+        .timeline-dot::after {
+            content: "";
+            position: absolute;
+            top: 18px;
+            bottom: -28px;
+            left: 50%;
+            width: 1px;
+            background: #e5e7eb;
+            transform: translateX(-50%);
+        }
+
+        .timeline-item:last-child .timeline-dot::after {
+            display: none;
+        }
+
+        .view-tab-active {
+            background: #2563eb;
+            color: #fff;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.12);
+        }
+
+        .dark-theme {
+            color-scheme: dark;
+            background: #111827;
+            color: #e5e7eb;
+        }
+
+        .dark-theme .surface {
+            background: #1f2937 !important;
+            border-color: #374151 !important;
+        }
+
+        .dark-theme .surface-muted {
+            background: #18212f !important;
+            border-color: #374151 !important;
+        }
+
+        .dark-theme .ink {
+            color: #f3f4f6 !important;
+        }
+
+        .dark-theme .muted {
+            color: #9ca3af !important;
+        }
+
+        .dark-theme input,
+        .dark-theme textarea,
+        .dark-theme select {
+            background: #111827 !important;
+            border-color: #4b5563 !important;
+            color: #f3f4f6 !important;
+        }
+
+        @media (max-width: 1100px) {
+            body {
+                min-height: 100vh;
+                height: auto !important;
+                overflow-y: auto !important;
+            }
+
+            #schedule-shell {
+                grid-template-columns: 1fr;
+                height: auto;
+                overflow: visible;
+            }
+
+            #schedule-shell > * {
+                grid-column: 1 / -1;
+                min-height: auto;
+            }
+
+            #primary-schedule {
+                min-height: 620px;
+                order: -1;
+            }
+        }
+    </style>
+</head>
+<body class="h-screen overflow-hidden text-gray-800">
+    <div class="flex h-full flex-col">
+        <header class="surface z-20 flex min-h-14 shrink-0 items-center justify-between gap-4 border-b border-gray-200 bg-white px-4 shadow-sm md:px-6">
+            <div class="flex min-w-0 items-center gap-3">
+                <a href="/" data-agent-home class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-gray-500 hover:bg-blue-50 hover:text-blue-700" title="返回 Agent 控制中心">
+                    <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/>
+                    </svg>
+                </a>
+                <div class="flex min-w-0 items-center gap-2">
+                    <svg class="h-6 w-6 shrink-0 text-blue-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    <h1 class="ink truncate text-lg font-semibold text-gray-800">日程管理</h1>
+                </div>
+                <nav class="ml-2 hidden items-center gap-1 text-sm md:flex">
+                    <a href="/" data-agent-home class="rounded-lg px-3 py-1.5 text-gray-500 hover:bg-blue-50 hover:text-blue-700">Agent</a>
+                    <a href="/todo/" class="rounded-lg bg-blue-50 px-3 py-1.5 font-medium text-blue-700">日程管理</a>
+                </nav>
+            </div>
+            <div class="flex shrink-0 items-center gap-2">
+                <span id="schedule-clock" class="muted hidden text-xs text-gray-400 xl:inline"></span>
+                <span class="hidden items-center gap-1.5 text-xs text-emerald-600 sm:flex">
+                    <span class="h-2 w-2 rounded-full bg-emerald-500"></span>
+                    日程服务在线
+                </span>
+                <button id="theme-toggle" class="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50" title="切换主题">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 3a9 9 0 109 9 7 7 0 01-9-9z"/>
+                    </svg>
+                </button>
+                <button id="fullscreen-toggle" class="flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50" title="切换全屏">
+                    <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M8 3H3v5m13-5h5v5M8 21H3v-5m18 0v5h-5"/>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <main id="schedule-shell" class="grid min-h-0 flex-1 grid-cols-12 gap-4 overflow-hidden p-4">
+            <aside class="col-span-3 flex min-h-0 flex-col gap-4">
+                <section class="surface shrink-0 rounded-lg border border-gray-200 bg-white shadow-sm">
+                    <div class="flex items-center justify-between border-b border-gray-100 px-4 py-3">
+                        <div>
+                            <p class="muted text-[11px] font-medium uppercase text-gray-400">Calendar</p>
+                            <h2 id="calendar-title" class="ink mt-0.5 text-sm font-semibold text-gray-800">读取中</h2>
+                        </div>
+                        <div class="flex gap-1">
+                            <button id="calendar-prev" class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700" title="上一周期">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+                            </button>
+                            <button id="calendar-next" class="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700" title="下一周期">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="p-4">
+                        <div class="mb-2 grid grid-cols-7 text-center text-[11px] font-medium text-gray-400">
+                            <span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span>六</span><span>日</span>
+                        </div>
+                        <div id="calendar-days" class="grid grid-cols-7 gap-1 text-center text-xs"></div>
+                    </div>
+                </section>
+
+                <section class="surface flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+                    <div class="surface-muted flex items-center justify-between border-b border-gray-100 bg-gray-50 px-4 py-3">
+                        <h2 class="ink flex items-center gap-2 text-sm font-medium text-gray-700">
+                            <svg class="h-4 w-4 text-amber-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+                            </svg>
+                            待办事项
+                        </h2>
+                        <span id="todo-count" class="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700">0 项</span>
+                    </div>
+                    <div id="todo-container" class="flex-1 space-y-2 overflow-y-auto p-3"></div>
+                </section>
+            </aside>
+
+            <section id="primary-schedule" class="surface col-span-6 flex min-h-0 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+                <div class="surface-muted flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 bg-gray-50 px-4 py-3 md:px-5">
+                    <div>
+                        <h2 id="schedule-heading" class="ink text-base font-semibold text-gray-800">今日日程</h2>
+                        <p id="schedule-date-label" class="muted mt-0.5 text-xs text-gray-500">读取中</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <div class="surface flex rounded-lg border border-gray-200 bg-white p-1 text-xs">
+                            <button data-view-mode="list" class="view-mode-btn rounded-md px-2.5 py-1.5">列表</button>
+                            <button data-view-mode="month" class="view-mode-btn rounded-md px-2.5 py-1.5">月</button>
+                            <button data-view-mode="week" class="view-mode-btn rounded-md px-2.5 py-1.5">周</button>
+                            <button data-view-mode="day" class="view-mode-btn rounded-md px-2.5 py-1.5">日</button>
+                        </div>
+                        <button id="refresh-schedule" class="flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-blue-50 hover:text-blue-700" title="刷新日程">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v6h6M20 20v-6h-6M5.5 15a7 7 0 0011.8 2M18.5 9A7 7 0 006.7 7"/>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+                <div id="schedule-container" class="flex-1 space-y-5 overflow-y-auto p-4 md:p-5"></div>
+                <div id="calendar-view" class="hidden flex-1 overflow-y-auto p-4 md:p-5"></div>
+            </section>
+
+            <aside class="col-span-3 flex min-h-0 flex-col gap-4">
+                <section class="surface shrink-0 rounded-lg border border-blue-100 bg-white p-4 shadow-sm">
+                    <div class="mb-3 flex items-center gap-2">
+                        <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-50 text-blue-600">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                            </svg>
+                        </div>
+                        <div>
+                            <h2 class="ink text-sm font-semibold text-gray-800">让 Agent 安排</h2>
+                            <p class="muted text-[11px] text-gray-500">使用自然语言创建或修改日程</p>
+                        </div>
+                    </div>
+                    <div class="mb-3 flex flex-wrap gap-2">
+                        <button type="button" data-agent-example="提醒我明天下午三点开会" class="rounded-md border border-blue-100 bg-blue-50 px-2 py-1 text-[10px] text-blue-700 hover:bg-blue-100">明天下午三点开会</button>
+                        <button type="button" data-agent-example="周五上午十点提醒我提交报告" class="rounded-md border border-gray-200 px-2 py-1 text-[10px] text-gray-600 hover:bg-gray-50">周五提交报告</button>
+                    </div>
+                    <div class="flex gap-2">
+                        <input id="agent-command-input" type="text" class="min-w-0 flex-1 rounded-lg border border-gray-200 px-3 py-2 text-xs outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" placeholder="输入日程指令">
+                        <button id="send-agent-command" class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white hover:bg-blue-700" title="发送给 Agent">
+                            <svg class="h-4 w-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                            </svg>
+                        </button>
+                    </div>
+                </section>
+
+                <section class="surface flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+                    <div class="surface-muted border-b border-gray-100 bg-gray-50 px-4 py-3">
+                        <h2 class="ink flex items-center gap-2 text-sm font-medium text-gray-700">
+                            <svg class="h-4 w-4 text-emerald-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-7-7h14"/>
+                            </svg>
+                            手动添加
+                        </h2>
+                    </div>
+                    <div class="flex-1 space-y-3 overflow-y-auto p-4">
+                        <div>
+                            <label for="task-title" class="muted mb-1 block text-[11px] font-medium text-gray-500">标题</label>
+                            <input id="task-title" type="text" maxlength="120" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" placeholder="例如：项目周报核对">
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label for="task-type" class="muted mb-1 block text-[11px] font-medium text-gray-500">类型</label>
+                                <select id="task-type" class="w-full rounded-lg border border-gray-200 px-2 py-2 text-xs outline-none">
+                                    <option value="schedule">日程</option>
+                                    <option value="todo">待办</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="task-priority" class="muted mb-1 block text-[11px] font-medium text-gray-500">优先级</label>
+                                <select id="task-priority" class="w-full rounded-lg border border-gray-200 px-2 py-2 text-xs outline-none">
+                                    <option value="高">高</option>
+                                    <option value="中" selected>中</option>
+                                    <option value="低">低</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div>
+                            <div class="mb-1 flex items-center justify-between">
+                                <label for="task-date" class="muted text-[11px] font-medium text-gray-500">日期</label>
+                                <button id="clear-task-date" type="button" class="text-[10px] text-gray-400 hover:text-red-500">清除</button>
+                            </div>
+                            <input id="task-date" type="date" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs outline-none focus:border-blue-400">
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label for="task-start-time" class="muted mb-1 block text-[11px] font-medium text-gray-500">开始时间</label>
+                                <input id="task-start-time" type="time" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs outline-none focus:border-blue-400">
+                            </div>
+                            <div>
+                                <label for="task-end-time" class="muted mb-1 block text-[11px] font-medium text-gray-500">结束时间</label>
+                                <input id="task-end-time" type="time" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs outline-none focus:border-blue-400">
+                            </div>
+                        </div>
+                        <div>
+                            <label for="task-category" class="muted mb-1 block text-[11px] font-medium text-gray-500">分类</label>
+                            <input id="task-category" type="text" maxlength="40" class="w-full rounded-lg border border-gray-200 px-3 py-2 text-xs outline-none focus:border-blue-400" placeholder="工作、会议、生活">
+                        </div>
+                        <div>
+                            <label for="task-description" class="muted mb-1 block text-[11px] font-medium text-gray-500">说明</label>
+                            <textarea id="task-description" rows="3" maxlength="500" class="w-full resize-none rounded-lg border border-gray-200 px-3 py-2 text-xs outline-none focus:border-blue-400" placeholder="补充地点、材料或备注"></textarea>
+                        </div>
+                    </div>
+                    <div class="flex gap-2 border-t border-gray-100 p-4">
+                        <button id="save-task" type="button" class="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-xs font-medium text-white hover:bg-blue-700">添加日程</button>
+                        <button id="cancel-edit" type="button" class="hidden rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-600 hover:bg-gray-50">取消</button>
+                    </div>
+                </section>
+            </aside>
+        </main>
+    </div>
+
+    <div id="toast-container" class="fixed right-4 top-16 z-50 flex w-72 flex-col gap-2"></div>
+    <script src="schedule-runtime.js"></script>
+</body>
+</html>
