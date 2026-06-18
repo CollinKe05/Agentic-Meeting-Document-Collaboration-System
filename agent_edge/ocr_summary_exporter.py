@@ -16,7 +16,7 @@ from .ocr_memory import read_latest_ocr_result
 from .paths import WORKSPACE_DIR, safe_child_path
 
 
-MAX_OCR_SUMMARY_CHARS = int(os.environ.get("OCR_SUMMARY_EXPORT_MAX_CHARS", "24000"))
+MAX_OCR_SUMMARY_CHARS = int(os.environ.get("OCR_SUMMARY_EXPORT_MAX_CHARS", "16000"))
 
 
 def export_ocr_summary(args: dict[str, Any]) -> dict[str, Any]:
@@ -63,7 +63,7 @@ def export_ocr_summary(args: dict[str, Any]) -> dict[str, Any]:
     return {
         "ok": True,
         "title": summary.get("title"),
-        "summary": summary.get("summary"),
+        "summary": summary.get("executive_summary"),
         "output_dir": str(output_dir),
         "json_path": str(json_path),
         "markdown_path": str(markdown_summary_path),
@@ -99,16 +99,20 @@ def _resolve_ocr_markdown(args: dict[str, Any], *, task_id: str) -> tuple[Path, 
 
 def _generate_summary(*, markdown: str, markdown_path: Path, metadata: dict[str, Any]) -> dict[str, Any]:
     prompt = f"""
-你是离线端 OCR 文档总结器。请严格基于 OCR 原文生成结构化总结，不要编造原文没有的信息。
+你是离线端 OCR 文档分析器。请严格基于 OCR 原文生成一份可交付的中文文档总结，不要编造原文没有的信息。
 
 输出必须是 JSON object，不要 Markdown，不要代码块。字段：
-- title: 文档标题或最接近的主题
-- summary: 200-500 字中文摘要
-- key_points: 6-12 条关键事实
-- conclusions: 3-8 条结论或可确认信息
-- action_items: 待办事项数组；没有就 []
-- risks: OCR 噪声、缺页、信息不完整、需要复核之处
-- source_notes: 对原文来源和 OCR 质量的简短说明
+- title: 文档标题或最接近的主题。
+- executive_summary: 500-900 字中文总述，说明文档主题、目标、核心方法、主要发现和意义。
+- background: 3-6 条，说明问题背景、应用场景、研究/工程动机。
+- core_problem: 3-6 条，说明文档试图解决的问题或需求。
+- method_or_workflow: 5-10 条，说明方法、系统流程、实验流程、开发阶段或实现步骤。
+- key_points: 8-16 条关键事实，尽量具体，不要只列宽泛关键词。
+- important_details: 6-12 条重要细节，包括模型、数据、模块、安全、部署、实验、指标、约束等原文可确认信息。
+- conclusions: 4-10 条结论或可确认信息。
+- action_items: 待办事项数组；没有就 []。
+- risks: OCR 噪声、缺页、公式/表格识别、信息不完整、需要人工复核等风险。
+- source_notes: 对原文来源和 OCR 质量的简短说明。
 
 OCR Markdown 路径：
 {markdown_path}
@@ -129,13 +133,30 @@ OCR 原文：
 def _fallback_summary(markdown: str, *, markdown_path: Path, error: str) -> dict[str, Any]:
     lines = _content_lines(markdown)
     title = next((line.lstrip("#").strip() for line in lines if line.startswith("#")), markdown_path.stem)
+    headings = [line.lstrip("#").strip() for line in lines if line.startswith("#")][:12]
+    bullets = [line.lstrip("-*0123456789. ").strip() for line in lines if line[:1] in {"-", "*"} or re.match(r"^\d+[.、]", line)][:18]
+    body = [line for line in lines if not line.startswith("#") and line not in bullets][:20]
+    excerpt = "；".join(body[:8])
     return {
         "title": title or markdown_path.stem,
-        "summary": "LLM 未能完成 OCR 总结，已基于 OCR 原文生成抽取式摘要。错误：" + error,
-        "key_points": lines[:10],
-        "conclusions": lines[:5],
+        "executive_summary": (
+            "LLM 未能在限定时间内完成深度 OCR 总结，当前报告基于 OCR 原文生成抽取式长摘要。"
+            f"错误：{error}。"
+            f"从可读文本看，文档主要围绕：{excerpt or title or markdown_path.stem}。"
+            "以下章节保留了原文中可直接抽取的标题、要点和复核风险，建议人工对照 OCR 原文复核关键结论。"
+        ),
+        "background": headings[:6] or body[:6],
+        "core_problem": body[:6],
+        "method_or_workflow": bullets[:10] or body[6:16],
+        "key_points": (bullets + body)[:16],
+        "important_details": body[:12],
+        "conclusions": body[-8:] if len(body) > 8 else body[:8],
         "action_items": [],
-        "risks": ["LLM 总结失败，当前结果为抽取式摘要，需要人工复核。"],
+        "risks": [
+            "LLM 总结超时，当前结果为抽取式摘要。",
+            "OCR 可能存在错字、漏字、版面顺序错误或公式表格识别不完整。",
+            "关键结论需要对照 OCR Markdown 或原 PDF 复核。",
+        ],
         "source_notes": f"Source OCR markdown: {markdown_path}",
     }
 
@@ -143,13 +164,20 @@ def _fallback_summary(markdown: str, *, markdown_path: Path, error: str) -> dict
 def _normalize_summary(data: dict[str, Any], *, markdown: str, markdown_path: Path) -> dict[str, Any]:
     fallback = _fallback_summary(markdown, markdown_path=markdown_path, error="")
     title = str(data.get("title") or fallback["title"]).strip() or markdown_path.stem
+    executive_summary = str(
+        data.get("executive_summary") or data.get("summary") or fallback["executive_summary"]
+    ).strip()
     return {
-        "schema_version": "ocr_summary_v1",
+        "schema_version": "ocr_summary_v2",
         "title": title,
         "source_markdown_path": str(markdown_path),
         "generated_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        "summary": str(data.get("summary") or fallback["summary"]).strip(),
+        "executive_summary": executive_summary,
+        "background": _string_list(data.get("background")) or fallback["background"],
+        "core_problem": _string_list(data.get("core_problem")) or fallback["core_problem"],
+        "method_or_workflow": _string_list(data.get("method_or_workflow")) or fallback["method_or_workflow"],
         "key_points": _string_list(data.get("key_points")) or fallback["key_points"],
+        "important_details": _string_list(data.get("important_details")) or fallback["important_details"],
         "conclusions": _string_list(data.get("conclusions")) or fallback["conclusions"],
         "action_items": _string_list(data.get("action_items")),
         "risks": _string_list(data.get("risks")) or fallback["risks"],
@@ -162,11 +190,23 @@ def _render_markdown(summary: dict[str, Any]) -> str:
     lines = [
         f"# {summary['title']}",
         "",
-        "## 摘要",
-        str(summary.get("summary") or "暂无摘要。"),
+        "## 执行摘要",
+        str(summary.get("executive_summary") or "暂无摘要。"),
+        "",
+        "## 背景与场景",
+        *_markdown_list(summary.get("background"), empty="暂无可确认背景。"),
+        "",
+        "## 核心问题",
+        *_markdown_list(summary.get("core_problem"), empty="暂无可确认问题。"),
+        "",
+        "## 方法、流程与系统结构",
+        *_markdown_list(summary.get("method_or_workflow"), empty="暂无可确认流程。"),
         "",
         "## 关键事实",
         *_markdown_list(summary.get("key_points"), empty="暂无关键事实。"),
+        "",
+        "## 重要细节",
+        *_markdown_list(summary.get("important_details"), empty="暂无重要细节。"),
         "",
         "## 结论",
         *_markdown_list(summary.get("conclusions"), empty="暂无明确结论。"),
@@ -189,15 +229,27 @@ def _render_markdown(summary: dict[str, Any]) -> str:
 def _render_typst(summary: dict[str, Any]) -> str:
     return f"""#set document(title: [{_typst_escape(summary['title'])}])
 #set page(margin: 1.8cm)
-#set text(font: \"Noto Sans CJK SC\", size: 10.5pt)
+#set text(font: "Noto Sans CJK SC", size: 10.5pt)
 
 = {_typst_escape(summary['title'])}
 
-== 摘要
-{_typst_escape(summary.get('summary') or '暂无摘要。')}
+== 执行摘要
+{_typst_escape(summary.get('executive_summary') or '暂无摘要。')}
+
+== 背景与场景
+{_typst_bullets(summary.get('background'), empty='暂无可确认背景。')}
+
+== 核心问题
+{_typst_bullets(summary.get('core_problem'), empty='暂无可确认问题。')}
+
+== 方法、流程与系统结构
+{_typst_bullets(summary.get('method_or_workflow'), empty='暂无可确认流程。')}
 
 == 关键事实
 {_typst_bullets(summary.get('key_points'), empty='暂无关键事实。')}
+
+== 重要细节
+{_typst_bullets(summary.get('important_details'), empty='暂无重要细节。')}
 
 == 结论
 {_typst_bullets(summary.get('conclusions'), empty='暂无明确结论。')}
@@ -285,7 +337,14 @@ def _typst_bullets(items: Any, *, empty: str) -> str:
 
 
 def _typst_escape(value: Any) -> str:
-    return str(value or "").replace("\\", "\\\\").replace("#", "\\#").replace("$", "\\$").replace("[", "\\[").replace("]", "\\]")
+    return (
+        str(value or "")
+        .replace("\\", "\\\\")
+        .replace("#", "\\#")
+        .replace("$", "\\$")
+        .replace("[", "\\[")
+        .replace("]", "\\]")
+    )
 
 
 def _extract_json_object(raw: str) -> dict[str, Any]:
