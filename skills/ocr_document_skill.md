@@ -78,16 +78,20 @@ OCR 解析和 OCR 总结导出是两个动作。
 
 - `PARSE_DOCUMENT_WITH_OCR_PC` 只负责解析源文档，写出 Markdown、JSON、图片等原文产物。
 - 它可以返回粗略预览，但不要在 OCR 解析阶段生成正式总结文档。
-- 当用户要求“总结 OCR 结果”、“生成 JSON/Markdown/Typst/PDF”、“格式化 OCR 总结文档”时，使用 `EXPORT_OCR_SUMMARY`。
+- 当用户只是要求“总结 OCR 结果/概括刚才 OCR 内容”时，只做短摘要，不生成 JSON/Markdown/Typst/PDF 报告文件。
+- 当用户明确要求“生成 JSON/Markdown/Typst/PDF”、“格式化 OCR 总结文档”、“导出 OCR 报告”时，使用 `EXPORT_OCR_SUMMARY`。
 - `EXPORT_OCR_SUMMARY` 必须基于 OCR Markdown 原文生成，而不是基于粗略预览生成。
-- 如果当前任务没有 OCR 产物，它会使用最近一次 OCR 结果。
+- `EXPORT_OCR_SUMMARY` 必须绑定明确的 OCR Markdown；当前任务没有 OCR 产物时应提示用户选择 OCR 文档，不应自动套用上一份文件。
+- 当输入路径已经是 `ocr_outputs/*.md`，并且用户要求生成 OCR 总结、报告、Markdown、Typst、PDF 或 metadata JSON 时，禁止先调用 `SAFE_READ_TEXT_FILE` / 普通文件读取工具。
+- `EXPORT_OCR_SUMMARY` 自己负责读取 OCR Markdown、压缩 evidence、调用 LLM 和生成导出文件；不要在它之前读取整份 OCR Markdown，否则大文件会触发 65536 bytes 限制。
+- OCR 解析完成后的即时回复只报告产物路径、文本块数量和很短的预览；正式总结报告只能由 `EXPORT_OCR_SUMMARY` 生成。
 
 推荐动作：
 
 ```text
 Action: USE_TOOL
 Action Input:
-{"tool_name": "EXPORT_OCR_SUMMARY", "args": {"template": "standard", "output_format": "pdf"}}
+{"tool_name": "EXPORT_OCR_SUMMARY", "args": {"path": "ocr_outputs/example.md", "template": "standard", "output_format": "pdf"}}
 ```
 
 最终回答需要包含：

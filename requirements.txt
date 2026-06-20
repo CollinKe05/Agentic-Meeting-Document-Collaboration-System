@@ -16,4 +16,7 @@ python-multipart>=0.0.6
 sherpa-onnx>=1.13.0
 sounddevice>=0.5.0
 soundfile>=0.13.0
+scipy>=1.10.0
+webrtcvad>=2.0.10; platform_system != "Windows"
+webrtcvad-wheels>=2.0.10; platform_system == "Windows"
 pycryptodome>=3.20.0

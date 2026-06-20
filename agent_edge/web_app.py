@@ -144,6 +144,10 @@ class AgentUIHandler(BaseHTTPRequestHandler):
             limit = int(parse_qs(parsed.query).get("limit", ["50"])[0])
             self._send_json({"ok": True, "records": list_meeting_records(limit=limit)})
             return
+        if path == "/api/ocr/records":
+            limit = int(parse_qs(parsed.query).get("limit", ["50"])[0])
+            self._send_json({"ok": True, "records": _list_ocr_records(limit=limit)})
+            return
         if path == "/api/voice-input/status":
             from .meeting_asr import voice_input_status
 
@@ -600,6 +604,28 @@ def _events_to_steps(events: list[dict[str, Any]]) -> list[dict[str, str]]:
             }
         )
     return steps
+
+
+def _list_ocr_records(*, limit: int = 50) -> list[dict[str, Any]]:
+    output_dir = WORKSPACE_DIR / "ocr_outputs"
+    if not output_dir.exists():
+        return []
+    records: list[dict[str, Any]] = []
+    for path in sorted(output_dir.glob("*.md"), key=lambda item: item.stat().st_mtime, reverse=True)[:limit]:
+        try:
+            rel_path = path.relative_to(WORKSPACE_DIR).as_posix()
+        except ValueError:
+            rel_path = str(path)
+        stat = path.stat()
+        records.append(
+            {
+                "name": path.name,
+                "path": rel_path,
+                "updated_at": time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(stat.st_mtime)),
+                "size_bytes": stat.st_size,
+            }
+        )
+    return records
 
 
 def _ui_index_path() -> Path:

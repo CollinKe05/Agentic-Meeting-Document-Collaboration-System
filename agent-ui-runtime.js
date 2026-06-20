@@ -31,6 +31,8 @@
   let currentTaskDoneShown = false;
   let meetingRunning = false;
   let voiceInputRunning = false;
+  let latestMeetingTranscript = '';
+  let latestVoiceTranscript = '';
   let meetingCollapsed = localStorage.getItem('agentMeetingCollapsed') === '1';
   let switchingModel = false;
 
@@ -582,9 +584,22 @@
 
   function updateMeetingUi(status) {
     meetingRunning = Boolean(status && status.running);
+    latestMeetingTranscript = (status && status.transcript || '').trim();
+    const asrState = status && status.asr_state || {};
+    const stateName = (status && status.status) || '';
+    const stateMessage = asrState.message || '';
+    const preview = latestMeetingTranscript ? latestMeetingTranscript.slice(-120) : stateMessage;
+    const label = meetingRunning
+      ? stateName === 'loading'
+        ? '加载 ASR 模型中'
+        : stateName === 'ready'
+          ? 'ASR 就绪，正在转写'
+          : '会议中'
+      : '等待会议请求';
     if (meetingStatusText) {
-      meetingStatusText.textContent = meetingRunning ? '会议中' : '等待会议请求';
+      meetingStatusText.textContent = preview ? `${label} · ${preview}` : label;
       meetingStatusText.className = `text-[11px] mt-0.5 ${meetingRunning ? 'text-red-600' : 'text-green-600'}`;
+      meetingStatusText.title = latestMeetingTranscript || stateMessage || label;
     }
     if (meetingStatusDot) {
       meetingStatusDot.className = `w-2.5 h-2.5 rounded-full ${meetingRunning ? 'bg-red-500 animate-pulse' : 'bg-green-500'}`;
@@ -756,8 +771,69 @@
     }
   }
 
-  function requestOcrSummaryExport(feature) {
-    submitTask(feature.prompt, []);
+  async function requestOcrSummaryExport(feature) {
+    try {
+      const response = await fetch('/api/ocr/records?limit=50');
+      const payload = await response.json();
+      if (!response.ok || !payload.ok) throw new Error(payload.error || '读取 OCR 记录列表失败');
+      const records = payload.records || [];
+      if (!records.length) {
+        appendMessage('error', '还没有可总结的 OCR 结果。请先解析一个 PDF/图片，生成 workspace_files/ocr_outputs/*.md。');
+        return;
+      }
+      showOcrRecordPicker(records, feature);
+    } catch (error) {
+      appendMessage('error', `OCR 总结导出失败：${error.message}`);
+    }
+  }
+
+  function showOcrRecordPicker(records, feature) {
+    const old = document.getElementById('ocr-record-picker');
+    if (old) old.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'ocr-record-picker';
+    overlay.className = 'fixed inset-0 z-[70] bg-black/35 flex items-center justify-center p-4';
+    overlay.innerHTML = `
+      <div class="w-full max-w-2xl max-h-[80vh] bg-white rounded-xl shadow-xl border border-gray-100 overflow-hidden">
+        <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h3 class="text-sm font-semibold text-gray-800">选择 OCR 文档</h3>
+            <p class="text-[11px] text-gray-500 mt-0.5">来源目录：workspace_files/ocr_outputs/</p>
+          </div>
+          <button id="ocr-record-picker-close" class="px-2 py-1 rounded border border-gray-200 text-xs text-gray-500 hover:bg-gray-50">关闭</button>
+        </div>
+        <div class="p-3 overflow-y-auto max-h-[60vh] space-y-2">
+          ${records.map((record, index) => `
+            <button data-ocr-record-index="${index}" class="w-full text-left p-3 rounded-lg border border-gray-100 hover:border-blue-200 hover:bg-blue-50 transition-colors">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="text-xs font-medium text-gray-800 truncate">${escapeHtml(record.name)}</div>
+                  <div class="text-[11px] text-gray-500 mt-1 break-all">${escapeHtml(record.path)}</div>
+                </div>
+                <div class="text-[10px] text-gray-400 shrink-0">${escapeHtml(record.updated_at || '')}</div>
+              </div>
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+
+    const close = () => overlay.remove();
+    overlay.querySelector('#ocr-record-picker-close').addEventListener('click', close);
+    overlay.addEventListener('click', event => {
+      if (event.target === overlay) close();
+    });
+    overlay.querySelectorAll('[data-ocr-record-index]').forEach(button => {
+      button.addEventListener('click', () => {
+        const record = records[Number(button.dataset.ocrRecordIndex)];
+        close();
+        const relPath = record.path;
+        const prompt = `请使用 EXPORT_OCR_SUMMARY 生成 OCR 总结导出文档。Action Input 必须是 JSON：{"tool_name":"EXPORT_OCR_SUMMARY","args":{"path":"${relPath}"}}。输出 Markdown、Typst、PDF 和 metadata JSON 路径。`;
+        submitTask(prompt, [{ name: record.name, path: relPath }]);
+      });
+    });
   }
 
   function chooseCryptoFile(operation) {
@@ -795,12 +871,34 @@
     }
   }
 
+  async function refreshVoiceInputStatus() {
+    if (!voiceInputRunning) return;
+    try {
+      const response = await fetch('/api/voice-input/status');
+      const payload = await response.json();
+      const voice = payload.voice_input || {};
+      if (!payload.ok) return;
+      voiceInputRunning = Boolean(voice.running);
+      latestVoiceTranscript = (voice.transcript || '').trim();
+      updateVoiceButton();
+      if (latestVoiceTranscript && inputElement) {
+        inputElement.value = latestVoiceTranscript;
+        if (typeof window.autoResize === 'function') window.autoResize(inputElement);
+      }
+    } catch {
+      return;
+    }
+  }
+
   function updateVoiceButton() {
     if (!voiceInputButton) return;
     voiceInputButton.className = `p-2.5 rounded-lg transition-colors focus:outline-none ${
       voiceInputRunning ? 'text-white bg-rose-600 hover:bg-rose-700' : 'text-gray-400 hover:text-rose-500 hover:bg-rose-50'
     }`;
     voiceInputButton.innerHTML = voiceInputRunning ? iconSvg('run', 'w-5 h-5 text-white') : iconSvg('mic', 'w-5 h-5');
+    voiceInputButton.title = voiceInputRunning
+      ? (latestVoiceTranscript ? `正在转写：${latestVoiceTranscript.slice(-80)}` : '语音输入已开启，正在加载或监听')
+      : '语音输入';
   }
 
   async function toggleVoiceInput() {
@@ -809,13 +907,14 @@
         const payload = await postJson('/api/voice-input/stop', {});
         voiceInputRunning = false;
         updateVoiceButton();
-        const transcript = (payload.voice_input && payload.voice_input.transcript || '').trim();
+        const transcript = (payload.voice_input && payload.voice_input.transcript || latestVoiceTranscript || '').trim();
         if (transcript) {
           inputElement.value = transcript;
           inputElement.focus();
           if (typeof window.autoResize === 'function') window.autoResize(inputElement);
         }
       } else {
+        latestVoiceTranscript = '';
         await postJson('/api/voice-input/start', {});
         voiceInputRunning = true;
         updateVoiceButton();
@@ -913,6 +1012,7 @@
   applyMeetingCollapsed();
   refreshMeetingStatus();
   refreshSystemStatus();
-  setInterval(refreshMeetingStatus, 3000);
+  setInterval(refreshMeetingStatus, 1000);
+  setInterval(refreshVoiceInputStatus, 1000);
   setInterval(refreshSystemStatus, 3000);
 })();

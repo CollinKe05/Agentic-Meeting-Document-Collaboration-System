@@ -134,7 +134,7 @@ def _build_ocr_command(
     if backend == "syss" and not callback_url:
         return (
             [
-                _python_for_ocr(),
+                _python_for_ocr(backend=backend),
                 "-m",
                 "agent_edge.syss_ocr_once",
                 "--input",
@@ -151,7 +151,7 @@ def _build_ocr_command(
     runner_module = "agent_edge.syss_ocr_runner" if backend == "syss" else "agent_edge.ocr_pc_runner"
     return (
         [
-            _python_for_ocr(),
+            _python_for_ocr(backend=backend),
             "-m",
             runner_module,
             "--input",
@@ -169,10 +169,13 @@ def _build_ocr_command(
     )
 
 
-def _python_for_ocr() -> str:
+def _python_for_ocr(*, backend: str = "") -> str:
     configured = os.environ.get("OCR_PC_PYTHON")
     if configured:
         return str(Path(configured).expanduser())
+
+    if backend == "syss":
+        return sys.executable
 
     windows_venv = PROJECT_ROOT / ".runtime" / "ocr_pc_venv" / "Scripts" / "python.exe"
     if os.name == "nt" and windows_venv.exists():

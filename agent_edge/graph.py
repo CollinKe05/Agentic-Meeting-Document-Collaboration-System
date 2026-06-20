@@ -570,6 +570,27 @@ def _deterministic_plan(user_input: str) -> list[dict[str, Any]]:
                 },
             ]
 
+        if _is_ocr_markdown_path(path) and _should_export_ocr_summary(user_input):
+            return [
+                {
+                    "id": 1,
+                    "kind": "learn_skill",
+                    "objective": "学习 OCR 总结导出流程。",
+                    "skill_file": "ocr_document_skill.md",
+                    "status": "todo",
+                    "attempts": 0,
+                },
+                {
+                    "id": 2,
+                    "kind": "use_tool",
+                    "objective": "直接基于已选 OCR Markdown 生成总结导出文档，不先使用普通文件读取。",
+                    "tool_name": "EXPORT_OCR_SUMMARY",
+                    "tool_input": {"path": path, "template": "standard", "output_format": "pdf"},
+                    "status": "todo",
+                    "attempts": 0,
+                },
+            ]
+
         if suffix in OCR_FILE_EXTENSIONS or "parse_document_with_ocr_pc" in lowered or "ocr" in lowered:
             plan = [
                 {
@@ -779,13 +800,27 @@ def _should_format_meeting_minutes(user_input: str, path: str | None = None) -> 
 
 def _should_export_ocr_summary(user_input: str) -> bool:
     lowered = user_input.lower()
-    has_ocr = "ocr" in lowered or any(keyword in user_input for keyword in ("OCR", "识别结果", "解析结果", "文档识别"))
-    has_summary = any(keyword in lowered for keyword in ("summary", "summarize", "export", "typst", "pdf", "json", "markdown"))
-    has_summary = has_summary or any(keyword in user_input for keyword in ("总结", "摘要", "导出", "生成文档", "生成文件", "排版"))
-    has_doc_outputs = any(keyword in lowered for keyword in ("typst", "pdf", "json", "markdown")) or any(
-        keyword in user_input for keyword in ("JSON", "Markdown", "Typst", "PDF")
+    has_ocr = (
+        "ocr" in lowered
+        or "export_ocr_summary" in lowered
+        or _is_ocr_markdown_path(user_input)
+        or any(keyword in user_input for keyword in ("OCR", "识别结果", "解析结果", "文档识别", "OCR Markdown"))
     )
-    return has_ocr and has_summary and (has_doc_outputs or any(keyword in user_input for keyword in ("导出", "生成文档", "生成文件", "排版")))
+    has_summary = any(
+        keyword in lowered
+        for keyword in ("summary", "summarize", "export", "report", "typst", "pdf", "json", "markdown")
+    ) or any(keyword in user_input for keyword in ("总结", "摘要", "导出", "报告", "生成文档", "生成文件", "排版"))
+    has_doc_outputs = any(keyword in lowered for keyword in ("typst", "pdf", "json", "markdown", "report")) or any(
+        keyword in user_input for keyword in ("JSON", "Markdown", "Typst", "PDF", "报告")
+    )
+    return has_ocr and has_summary and (
+        has_doc_outputs or any(keyword in user_input for keyword in ("导出", "生成文档", "生成文件", "生成报告", "排版"))
+    )
+
+
+def _is_ocr_markdown_path(path: str) -> bool:
+    normalized = str(path or "").replace("\\", "/").lower()
+    return normalized.endswith(".md") and "/ocr_outputs/" in f"/{normalized}"
 
 
 def _should_use_latest_ocr(user_input: str) -> bool:
@@ -870,6 +905,15 @@ def _repair_file_tool_route(task: dict[str, Any], user_input: str) -> None:
     suffix = Path(path).suffix.lower()
     if tool_name == "FORMAT_MEETING_MINUTES":
         task["tool_input"] = {**tool_input, "path": path}
+        return
+
+    if _is_ocr_markdown_path(path) and _should_export_ocr_summary(user_input):
+        task["tool_name"] = "EXPORT_OCR_SUMMARY"
+        task["tool_input"] = {
+            "path": path,
+            "template": str(tool_input.get("template") or "standard"),
+            "output_format": str(tool_input.get("output_format") or "pdf"),
+        }
         return
 
     if suffix in TEXT_FILE_EXTENSIONS:
@@ -1093,9 +1137,9 @@ def _extract_final_answer(past_steps: list[tuple], user_input: str = "") -> list
                 f"- 文本块数量：{block_count}"
             )
             if preview.strip():
-                answers.append(header + "\n\n" + _summarize_ocr_markdown(markdown_preview=preview, user_input=user_input))
+                answers.append(header + "\n\n" + _ocr_parse_preview(preview))
             else:
-                answers.append(header + "\n\nOCR 未返回可用于总结的 Markdown 预览，暂时无法生成内容摘要。")
+                answers.append(header + "\n\nOCR 未返回可用于预览的 Markdown 内容。若要生成正式报告，请选择该 OCR Markdown 并使用 OCR 总结导出。")
 
     return answers
 
@@ -1212,6 +1256,26 @@ OCR Markdown 预览：
             content=markdown_preview,
             error=f"{type(exc).__name__}: {exc}",
         )
+
+
+def _ocr_parse_preview(markdown_preview: str, *, max_lines: int = 8) -> str:
+    lines: list[str] = []
+    for raw in markdown_preview.replace("\r\n", "\n").splitlines():
+        line = re.sub(r"\s+", " ", raw).strip()
+        if not line:
+            continue
+        if set(line) <= {"=", "-", "_", "*"}:
+            continue
+        lines.append(line)
+        if len(lines) >= max_lines:
+            break
+    if not lines:
+        return "OCR 已生成 Markdown，但预览内容为空。若要生成正式报告，请选择该 OCR Markdown 并使用 OCR 总结导出。"
+    return (
+        "OCR 短预览（非正式报告）：\n"
+        + "\n".join(f"- {line[:180]}" for line in lines)
+        + "\n\n若要生成正式 Markdown/Typst/PDF 报告，请选择该 OCR Markdown 并使用 OCR 总结导出。"
+    )
 
 
 def _answer_from_ocr_content(*, path: str, content: str, user_input: str) -> str:

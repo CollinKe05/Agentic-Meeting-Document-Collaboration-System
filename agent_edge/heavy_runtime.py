@@ -161,10 +161,13 @@ def get_llama_cpp_bin() -> Path:
         return _platform_path(configured)
 
     if os.name == "nt":
+        user_profile = os.environ.get("USERPROFILE", "").strip()
         candidates = [
             RUNTIME_DIR / "llama.cpp" / "build" / "bin" / "llama-server.exe",
             RUNTIME_DIR / "llama.cpp" / "build" / "bin" / "Release" / "llama-server.exe",
         ]
+        if user_profile:
+            candidates.append(Path(user_profile) / ".docker" / "bin" / "inference" / "llama-server.exe")
     else:
         candidates = [
             RUNTIME_DIR / "llama.cpp" / "build" / "bin" / "llama-server",

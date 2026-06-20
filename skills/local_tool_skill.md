@@ -24,7 +24,10 @@
 - 解析 PDF、图片、扫描件前，学习 `ocr_document_skill.md`。
 - 处理会议记录、语音输入、会议总结前，学习 `asr_meeting_skill.md`。
 - 生成会议纪要排版文件、Typst 或 PDF 前，学习 `meeting_minutes_skill.md`。
-- 用户说“总结 OCR 结果”“生成 OCR 总结文档”“导出 OCR PDF/Markdown/Typst”时，使用 `EXPORT_OCR_SUMMARY`。
+- 用户只是说“总结 OCR 结果/概括刚才 OCR 内容”时，优先读取对应 OCR Markdown 并给短摘要，不生成报告文件。
+- 只有用户明确要求“生成 OCR 总结文档/导出 OCR PDF/Markdown/Typst/生成报告/排版报告”时，才使用 `EXPORT_OCR_SUMMARY`。
+- 如果用户已经选择或给出 `ocr_outputs/*.md`，并要求生成 OCR 报告、导出 Markdown/Typst/PDF/JSON，必须直接调用 `EXPORT_OCR_SUMMARY`，不要先调用 `SAFE_READ_TEXT_FILE`。
+- `EXPORT_OCR_SUMMARY` 内部会读取和压缩 OCR Markdown；普通文件读取有 65536 bytes 限制，不能用于大 OCR Markdown 报告导出。
 - 用户说“上一次 OCR 结果”“刚才那个文档”“根据这个 PDF 回答”等追问时，使用 `READ_LAST_OCR_RESULT`。
 - 用户说“添加日程”“提醒我”“完成某个待办”“删除某个日程”“把日程改到某时间”时，学习 `todo_schedule_skill.md` 并使用日程工具。
 

@@ -94,9 +94,9 @@ def features() -> list[dict[str, Any]]:
         {
             "id": "read-file",
             "title": "文件读取",
-            "description": "读取 workspace_files 内的文本文件并总结。",
+            "description": "读取 workspace_files 内的小型文本文件并总结；OCR Markdown 报告导出请用 OCR 总结导出。",
             "needsFile": True,
-            "prompt": "请读取文件 {path}，总结主要内容，并列出关键事实。",
+            "prompt": "请读取文件 {path}，总结主要内容，并列出关键事实。若该文件位于 ocr_outputs 且用户要生成 OCR 报告，请改用 EXPORT_OCR_SUMMARY，不要读取整份 OCR Markdown。",
         },
         {
             "id": "parse-file",
@@ -105,16 +105,16 @@ def features() -> list[dict[str, Any]]:
             "needsFile": True,
             "prompt": (
                 "请使用 PARSE_DOCUMENT_WITH_OCR_PC 解析文件 {path}，返回 Markdown、"
-                "content_list_v2、图片目录，并总结 OCR 解析结果。"
+                "content_list_v2、图片目录和文本块数量。OCR 解析阶段只做短预览；正式报告需另用 EXPORT_OCR_SUMMARY。"
             ),
         },
         {
             "id": "ocr-summary-export",
             "title": "OCR 总结导出",
-            "description": "基于当前或最近一次 OCR 原文生成 JSON、Markdown、Typst 和 PDF。",
+            "description": "选择一个 OCR Markdown 后生成 JSON、Markdown、Typst 和 PDF。",
             "needsFile": False,
             "action": "ocr-summary-export",
-            "prompt": "请基于当前或最近一次 OCR 原文生成 OCR 总结导出文档，输出 JSON、Markdown、Typst 和 PDF 路径。",
+            "prompt": "请选择一个 OCR Markdown，并直接调用 EXPORT_OCR_SUMMARY 基于该原文生成 OCR 总结导出文档，输出 metadata JSON、Markdown、Typst 和 PDF 路径。不要先使用 SAFE_READ_TEXT_FILE 读取 OCR Markdown。",
         },
         {
             "id": "summarize",

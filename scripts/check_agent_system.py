@@ -37,6 +37,8 @@ def _check_imports() -> bool:
         ("sounddevice", "sounddevice"),
         ("soundfile", "soundfile"),
         ("sherpa_onnx", "sherpa-onnx"),
+        ("scipy", "scipy"),
+        ("webrtcvad", "webrtcvad"),
         ("Crypto", "pycryptodome"),
     ]
     ok = True

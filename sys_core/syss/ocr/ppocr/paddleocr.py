@@ -10,6 +10,7 @@
 
 import cv2
 import numpy as np
+from pathlib import Path
 
 from ocr_conf import OCRConfig
 from predict.predict_ocr import OCR
@@ -38,7 +39,9 @@ class ONNXPaddleOcr(OCR):
             dt_boxes, rec_res = self.__call__(img, cls, mfd_res)
             tmp_res = [[box.tolist(), res] for box, res in zip(dt_boxes, rec_res)]
             # 计数dt_boxes的数量，写入output_full.md,tmp_res都写入，其中tmp每个元素之间添加换行符
-            with open("param/output_full.md", "w") as f:
+            debug_path = Path(__file__).resolve().parent / "param" / "output_full.md"
+            debug_path.parent.mkdir(parents=True, exist_ok=True)
+            with debug_path.open("w", encoding="utf-8", newline="\n") as f:
                 f.write(str(len(dt_boxes)))
                 f.write("\n")
                 for i in range(len(tmp_res)):
@@ -101,4 +104,3 @@ class ONNXPaddleOcr(OCR):
             _, gray = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
             img = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
         return img
-

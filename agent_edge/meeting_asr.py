@@ -265,7 +265,7 @@ def _stop_session(session: AsrSession | None, *, kind: str) -> dict[str, Any]:
     if _is_live(session):
         _request_session_stop(session, grace_seconds=float(os.environ.get("ASR_STOP_GRACE_SECONDS", "8")))
     transcript_path = _discover_transcript_path(session)
-    transcript = _read_transcript(transcript_path, kind=kind) if transcript_path else ""
+    transcript = _read_transcript(transcript_path, kind=kind, preview=False) if transcript_path else ""
     return {
         "status": "waiting" if kind == "meeting" else "idle",
         "running": False,
@@ -396,7 +396,11 @@ def _meeting_summary_preview(transcript: str) -> str:
     content_lines = [
         line.strip()
         for line in transcript.splitlines()
-        if line.strip() and not line.startswith("=") and "开始时间" not in line and line.strip() != "录音记录"
+        if line.strip()
+        and not _is_asr_status_line(line)
+        and not line.startswith("=")
+        and "开始时间" not in line
+        and line.strip() != "录音记录"
     ]
     return " ".join(content_lines)[:300]
 
@@ -405,23 +409,30 @@ def _status_for_session(session: AsrSession | None, *, idle_label: str, kind: st
     if session is None or not _is_live(session):
         transcript_path = _discover_transcript_path(session) if session else None
         transcript = _read_transcript(transcript_path, kind=kind) if transcript_path else ""
+        asr_state = _read_asr_state(transcript_path)
         return {
-            "status": idle_label,
+            "status": asr_state.get("status") or idle_label,
             "running": False,
             "backend": session.backend if session else _resolve_asr_backend(),
             "transcript_path": str(transcript_path) if transcript_path else None,
             "transcript": transcript,
+            "asr_state": asr_state,
+            "last_updated_at": _mtime_text(transcript_path),
         }
     transcript_path = _discover_transcript_path(session)
     session.transcript_path = transcript_path or session.transcript_path
     transcript = _read_transcript(session.transcript_path, kind=kind) if session.transcript_path else ""
+    asr_state = _read_asr_state(session.transcript_path)
+    status = asr_state.get("status") or "running"
     return {
-        "status": "running",
+        "status": status if status != "stopped" else "running",
         "running": True,
         "pid": session.process.pid,
         "backend": session.backend,
         "transcript_path": str(session.transcript_path) if session.transcript_path else None,
         "transcript": transcript,
+        "asr_state": asr_state,
+        "last_updated_at": _mtime_text(session.transcript_path),
     }
 
 
@@ -631,21 +642,24 @@ def _discover_transcript_path(session: AsrSession | None) -> Path | None:
     return max(fresh, key=lambda path: path.stat().st_mtime)
 
 
-def _read_transcript(path: Path | None, *, kind: str = "meeting") -> str:
+def _read_transcript(path: Path | None, *, kind: str = "meeting", preview: bool = True) -> str:
     if path is None or not path.exists():
         return ""
     text = path.read_text(encoding="utf-8", errors="replace")
-    limit = int(os.environ.get("ASR_TRANSCRIPT_PREVIEW_CHARS", str(DEFAULT_TRANSCRIPT_LIMIT)))
-    text = text[-limit:]
+    if preview:
+        limit = int(os.environ.get("ASR_TRANSCRIPT_PREVIEW_CHARS", str(DEFAULT_TRANSCRIPT_LIMIT)))
+        text = text[-limit:]
     if kind == "voice":
         return _format_voice_transcript(text)
-    return text
+    return _strip_transcript_log_header(text)
 
 
 def _format_voice_transcript(text: str) -> str:
     segments: list[tuple[str, int, str]] = []
     for index, raw_line in enumerate(text.splitlines()):
         line = raw_line.strip()
+        if _is_asr_status_line(line):
+            continue
         match = re.match(r"^\[(\d{2}:\d{2}:\d{2})\]\s*(.+?)\s*$", line)
         if match:
             sentence = match.group(2).strip()
@@ -662,6 +676,8 @@ def _strip_transcript_log_header(text: str) -> str:
         line = raw_line.strip()
         if not line:
             continue
+        if _is_asr_status_line(line):
+            continue
         if set(line) <= {"="}:
             continue
         if line in {"录音记录", "錄音記錄"}:
@@ -670,6 +686,42 @@ def _strip_transcript_log_header(text: str) -> str:
             continue
         lines.append(line)
     return " ".join(lines)
+
+
+def _read_asr_state(path: Path | None) -> dict[str, Any]:
+    if path is None or not path.exists():
+        return {"status": "", "message": ""}
+    status = ""
+    message = ""
+    try:
+        for raw_line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw_line.strip()
+            match = re.match(r"^\[\[(ASR_[A-Z_]+)\]\]\s*(.*)$", line)
+            if not match:
+                continue
+            code = match.group(1)
+            message = match.group(2).strip()
+            if code == "ASR_LOADING":
+                status = "loading"
+            elif code == "ASR_READY":
+                status = "ready"
+            elif code == "ASR_ERROR":
+                status = "error"
+            elif code == "ASR_STOPPED":
+                status = "stopped"
+    except Exception:
+        return {"status": "", "message": ""}
+    return {"status": status, "message": message}
+
+
+def _is_asr_status_line(line: str) -> bool:
+    return bool(re.match(r"^\[\[ASR_[A-Z_]+\]\]", line.strip()))
+
+
+def _mtime_text(path: Path | None) -> str:
+    if path is None or not path.exists():
+        return ""
+    return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(path.stat().st_mtime))
 
 
 def _devices_have_input(devices: Any) -> bool:
