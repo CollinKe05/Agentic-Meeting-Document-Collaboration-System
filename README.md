@@ -1,121 +1,173 @@
-# 离线边缘端 LangGraph Agent
+# Offline Edge LangGraph Agent
 
-这是一个用于验证“边缘端 Agent 调度业务逻辑”的本地项目。当前版本以 WSL Ubuntu 作为测试环境，默认使用 `llama.cpp` 启动本地 `llama-server`，模型规划和执行由 LangGraph 编排，文档解析由 OCR/PaddleOCR 作为互斥重型工具执行。
+Offline Edge LangGraph Agent is a local-first agent system designed for desktop and edge-device deployment. It uses LangGraph for task orchestration, `llama.cpp` for local OpenAI-compatible LLM inference, and integrates local tools for OCR/PaddleOCR document parsing, meeting transcription, file operations, task scheduling, and document export.
 
-## 目前实现了什么
+The project is built to run useful agent workflows without relying on cloud services. Its current primary environment is Windows with WSL Ubuntu, with additional integration paths for RDK/board-side OCR pipelines.
 
-- 本地 Agent 主链路：用户输入 -> Planner 生成计划 -> Executor 执行 ReAct 步骤 -> 本地工具返回 Observation -> 汇总结果。
-- LLM 后端：
-  - 唯一后端：`llama.cpp`。
-  - Python 进程会启动和管理 `llama-server`，并通过 `/v1/chat/completions` 调用。
-  - 已移除 `mock` 和 `ollama` 后端；测试通过 patch llama.cpp 调用完成，不再提供运行时 mock。
-- 严格串行重型资源管理：
-  - LLM 推理和 OCR 解析互斥。
-  - 调 OCR 前会终止受控的 `llama-server`。
-  - OCR 阻塞式运行结束后，再重新拉起 `llama-server`。
-  - 子进程通过进程组管理，超时或异常时会先终止、再强杀、最后等待回收。
-- 本地工具：
-  - 读取技能文件。
-  - 读取/写入 `workspace_files/` 下的文本文件。
-  - 统计文本字符数。
-  - 调用 OCR/PaddleOCR 解析 PDF、图片。
-- Web UI：
-  - 居中的聊天框。
-  - 拖拽/点击上传文件。
-  - 展示执行状态、Agent 步骤和 Observation。
-  - 右侧“可用功能”快捷按钮。
-  - 左下角任务记录。
-  - 左上角自建/编辑 `skill.md` 窗口。
-  - 右下角会议记录开关与语音输入按钮。
+## Key Features
 
-## Agent 能干什么
+- Local agent workflow: user input -> Planner -> Executor with ReAct steps -> local tool Observation -> Reviewer -> final response.
+- Local LLM backend: managed `llama-server` process powered by `llama.cpp` and accessed through OpenAI-compatible `/v1/chat/completions`.
+- Web UI: chat, file upload, task event streaming, model selection, context management, OCR records, meeting records, voice input, and schedule/todo views.
+- Document parsing: OCR/PaddleOCR parsing for PDFs and images, producing Markdown, `content_list_v2`, blocks JSON, image directories, and logs.
+- Local file tools: safe read/write/count operations inside the controlled `workspace_files/` directory.
+- Meeting workflow: meeting recording/transcription status, meeting summary generation, and Typst-based meeting minutes export.
+- Schedule/todo workflow: lightweight local task storage and a `/todo` page.
+- Heavy-runtime scheduling: mutual exclusion for LLM, OCR, and ASR workloads so that high-resource processes do not compete unexpectedly.
 
-当前适合做这些事情：
+## Repository Structure
 
-- 读取本地安全工作区内的文本文件。
-- 统计输入文本字符数。
-- 查看和学习本地 Markdown 技能。
-- 上传文件到 `workspace_files/uploads/`。
-- 对支持格式的文档调用 OCR/PaddleOCR，生成 Markdown、`content_list_v2`、图片目录等解析产物。
-- 在 UI 中快速触发“文件读取”“文件解析”“列出技能”等任务。
+```text
+.
++-- agent_edge/                 # Core Python package
+|   +-- graph.py                # LangGraph Planner/Executor workflow
+|   +-- event_agent.py          # Async tasks, event stream, and context assembly
+|   +-- web_app.py              # HTTP Web UI and API server
+|   +-- llm.py                  # Local LLM call wrapper
+|   +-- heavy_runtime.py        # llama.cpp, OCR, and ASR resource scheduling
+|   +-- local_actions.py        # Local tool registry and dispatcher
+|   +-- ocr_pc_tool.py          # PC OCR/PaddleOCR tool entry point
+|   +-- syss_ocr_runner.py      # RDK/syss OCR integration
+|   +-- meeting_asr.py          # Meeting recording and voice input management
+|   +-- meeting_formatter.py    # Meeting minutes formatting and export
+|   +-- task_store.py           # Agent task and event persistence
+|   +-- todo_store.py           # Schedule/todo persistence
+|   +-- ui/                     # Packaged UI assets
++-- skills/                     # Local Skill.md capability descriptions
++-- scripts/                    # WSL, llama.cpp, UI, and OCR helper scripts
++-- sys_core/                   # Built-in syss/OCR implementation
++-- sherpa_asr/                 # sherpa-onnx ASR-related assets and utilities
++-- todo_rdk/                   # Schedule/todo frontend and data
++-- workspace_files/            # Controlled workspace, uploads, and outputs
++-- docs/                       # Architecture, deployment, and migration docs
++-- tests/                      # Unit tests
++-- pyproject.toml              # Python package configuration
++-- requirements.txt            # Python dependencies
++-- index.html                  # Main Web UI page
++-- schedule.html               # Schedule page
++-- README_CN.md                # Chinese README
+```
 
-当前还不适合做这些事情：
-
-- 还没有完整的多轮长期记忆。
-- 还没有向量检索和大文档分块问答。
-- UI 使用 SSE 展示任务事件，但工具步骤仍是 MVP 粒度。
-- OCR_pc 依赖需要按 `OCR_pc/OCR_pc/requirements.txt` 准备。
-- `llama.cpp` 和 Qwen GGUF 需要先单独下载/构建。
-- 没有用户权限系统，不建议直接暴露到公网。
-
-## 运行流程图
+## Runtime Flow
 
 ```mermaid
 flowchart TD
-    A["用户输入 / UI 提交任务"] --> B["LangGraph Planner"]
-    B --> C["本地 LLM: llama.cpp"]
-    C --> D["生成 JSON Plan"]
-    D --> E["LangGraph Executor"]
-    E --> F{"需要本地工具吗？"}
-    F -->|"读取/写入/统计"| G["local_actions 本地工具"]
-    F -->|"文档解析"| H["进入 OCR 互斥区"]
-    H --> I["停止受控 llama-server"]
-    I --> J["阻塞式运行 OCR/PaddleOCR"]
-    J --> K["生成 Markdown / content_list_v2 / images"]
-    K --> L["重启 llama-server"]
-    G --> M["Observation 写回 Agent 状态"]
-    L --> M
-    M --> N{"还有步骤吗？"}
-    N -->|"有"| E
-    N -->|"无"| O["汇总最终结果"]
+    A["User input / Web UI request"] --> B["Event Agent"]
+    B --> C["LangGraph Planner"]
+    C --> D["Local LLM via llama.cpp"]
+    D --> E["JSON execution plan"]
+    E --> F["LangGraph Executor"]
+    F --> G{"Need local tool?"}
+    G -->|"Text / skill / todo"| H["local_actions tools"]
+    G -->|"PDF / image parsing"| I["OCR resource request"]
+    I --> J["Stop managed llama-server"]
+    J --> K["Run OCR/PaddleOCR"]
+    K --> L["Generate Markdown / JSON / images"]
+    L --> M["Restart llama-server"]
+    H --> N["Observation"]
+    M --> N
+    N --> O["Reviewer"]
+    O --> P["Persist task events"]
+    P --> Q["Final response"]
 ```
 
-## 命令行使用
+## Requirements
 
-第一次准备 `llama.cpp` 和 Qwen2.5-1.5B GGUF：
+- Python 3.10 or later.
+- Windows with WSL Ubuntu, or a Linux environment capable of running Python and `llama.cpp`.
+- A built `llama-server` binary.
+- A local GGUF model. The default model alias is `qwen2.5-1.5b-instruct-q4_k_m`.
+- OCR/PaddleOCR runtime dependencies for document parsing.
+- Typst for PDF export in meeting-minutes workflows.
+
+## Installation
+
+Create and activate a Python virtual environment:
+
+```powershell
+cd C:\Users\19653\Desktop\agent
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+python -m pip install -e .
+```
+
+Prepare `llama.cpp` and the default GGUF model from WSL:
 
 ```powershell
 wsl -u root --cd /mnt/c/Users/19653/Desktop/agent bash scripts/ensure_llama_cpp_wsl.sh
 ```
 
-运行 Agent：
+If you already have a `llama-server` binary or a GGUF model, override the defaults with environment variables:
 
 ```powershell
-cd C:\Users\19653\Desktop\agent
-.\scripts\run_agent_wsl.cmd "请读取 demo_input.txt，并总结内容。"
+$env:LLAMA_CPP_BIN="C:\path\to\llama-server.exe"
+$env:LLAMA_CPP_MODEL_PATH="C:\path\to\model.gguf"
+$env:LLAMA_CPP_MODEL="your-model-alias"
 ```
 
-## Web UI 使用
+## CLI Usage
 
-启动 UI：
+Run one agent task through the WSL helper:
+
+```powershell
+.\scripts\run_agent_wsl.cmd "Read demo_input.txt and summarize the main content."
+```
+
+After installing the package in editable mode, you can also use the Python entry point:
+
+```powershell
+edge-agent "Count the number of characters in this sentence."
+```
+
+Common options:
+
+```powershell
+edge-agent `
+  --model qwen2.5-1.5b-instruct-q4_k_m `
+  --model-path .runtime\models\qwen2.5-1.5b-instruct-q4_k_m.gguf `
+  --base-url http://127.0.0.1:8080/v1 `
+  --threads 4 `
+  --ctx-size 4096 `
+  --show-trace `
+  "Read demo_input.txt and show the execution trace."
+```
+
+## Web UI
+
+Start the Web UI:
 
 ```powershell
 .\scripts\run_agent_ui_wsl.cmd
 ```
 
-浏览器打开：
+Open:
 
 ```text
 http://127.0.0.1:7860
 ```
 
-界面说明：
+The UI includes:
 
-- 中间：聊天框和上传区。
-- 右侧：可用功能，点击“文件读取/文件解析”会弹出文件选择窗口，上传后自动填充 prompt 并发送。
-- 左上：自建 `skill.md` 编辑器，可以读取、修改、保存技能文件。
-- 左下：任务记录，记录最近的处理结果。
-- 聊天结果下方：显示 Agent 执行步骤，包括 Action、Action Input 和 Observation。
+- Main chat panel for natural-language tasks.
+- File upload into `workspace_files/uploads/`.
+- Task event stream for Planner, tool calls, OCR, Reviewer, and completion events.
+- Model management for discovering and selecting `.gguf` models.
+- Context management for document and business contexts.
+- OCR records for recently generated Markdown outputs.
+- Meeting controls for recording, summarization, and meeting-minutes export.
+- Schedule/todo page at `/todo`.
 
-## 文档解析使用说明
+## Document Parsing
 
-把文件放进 `workspace_files/`，或在 UI 中上传文件。然后使用类似 prompt：
+Place files under `workspace_files/` or upload them from the Web UI. Then use a prompt such as:
 
 ```text
-请使用 PARSE_DOCUMENT_WITH_OCR_PC 解析文件 uploads/sample.pdf，返回 Markdown、content_list_v2、图片目录，并总结解析结果。
+Use PARSE_DOCUMENT_WITH_OCR_PC to parse uploads/sample.pdf. Return Markdown, content_list_v2, image directory, block count, and a summary of the parsing result.
 ```
 
-工具会返回：
+The OCR tool typically returns:
 
 - `markdown_path`
 - `content_list_v2_path`
@@ -125,14 +177,24 @@ http://127.0.0.1:7860
 - `markdown_preview`
 - `log_path`
 
-RDK 板端使用 syss + BPU PaddleOCR 流水线时，保持工具名不变，启动前配置：
+For a direct board-side or command-line syss OCR run:
+
+```bash
+bash scripts/run_syss_ocr_once.sh -i workspace_files/uploads/demo.pdf -o workspace_files/ocr_outputs
+```
+
+This invokes `agent_edge.syss_ocr_once` and produces the same categories of OCR artifacts as the Agent path. The one-shot script does not automatically stop `llama-server`, so use it when resources are available or the LLM server is already stopped.
+
+## RDK / syss OCR Configuration
+
+For an external syss + BPU PaddleOCR pipeline:
 
 ```bash
 export AGENT_OCR_BACKEND=syss
 export SYSS_PROJECT_DIR=/home/sunrise/syss/syss_f16yolo
 ```
 
-如果不用外部 syss 项目，而是走本仓库内置 `sys_core.syss`，再配置：
+For the built-in `sys_core.syss` path, configure the actual board-side runtime paths:
 
 ```bash
 export SYSS_BPU_RUNTIME_DIR=/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/runtime/python
@@ -141,21 +203,77 @@ export SYSS_BPU_REC=/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/model/r
 export SYSS_BPU_DICT=/home/sunrise/rdk_model_zoo/samples/vision/PaddleOCR/runtime/python/dict.txt
 ```
 
-外部 syss 项目的 fp16 YOLO、BPU OCR、LayoutReader 路径由它自己的 `config.py` 管。内置路线下，DocLayout-YOLO 识框第一版继续使用 CPU ONNX；如果模型不在默认目录，用 `SYSS_YOLO_MODEL` 指定。BPU OCR 默认会在后台和 YOLO 阶段重叠执行；如需关闭，可设 `SYSS_BPU_OVERLAP=0`。
+The external syss project manages fp16 YOLO, BPU OCR, and LayoutReader paths through its own `config.py`. For the built-in path, set `SYSS_YOLO_MODEL` if the DocLayout-YOLO model is not in the default location. Set `SYSS_BPU_OVERLAP=0` to disable overlapping BPU OCR execution with the YOLO stage.
 
-如果不需要 Agent 的资源锁和 UI 链路，只想在板端一次命令完成 OCR，可直接跑：
+## Local Tools
 
-```bash
-bash scripts/run_syss_ocr_once.sh -i workspace_files/uploads/demo.pdf -o workspace_files/ocr_outputs
+The Agent exposes local tools through `agent_edge.local_actions`. Common tools include:
+
+- `LIST_SKILLS`: list local skill files.
+- `SAFE_READ_TEXT_FILE`: read a small text file inside `workspace_files/`.
+- `SAFE_WRITE_TEXT_FILE`: write a text file inside `workspace_files/`.
+- `COUNT_TEXT_CHARS`: count text characters.
+- `PARSE_DOCUMENT_WITH_OCR_PC`: parse a PDF or image document.
+- `READ_LAST_OCR_RESULT`: read the latest OCR Markdown result.
+- `EXPORT_OCR_SUMMARY`: export a summary document from OCR Markdown.
+- `FORMAT_MEETING_MINUTES`: format meeting transcripts as Markdown/Typst/PDF.
+- `LIST_TODO_TASKS`, `ADD_TODO_TASK`, `UPDATE_TODO_TASK`, `COMPLETE_TODO_TASK`, `DELETE_TODO_TASK`: manage schedule/todo items.
+
+All default file read/write tools are constrained to `workspace_files/` to prevent accidental access outside the controlled workspace.
+
+## Important Environment Variables
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `AGENT_RUNTIME_DIR` | `.runtime` | Runtime directory for `llama.cpp`, models, and logs |
+| `AGENT_WORKSPACE_DIR` | `workspace_files` | Controlled file workspace |
+| `AGENT_SKILLS_DIR` | `skills` | Local skill directory |
+| `AGENT_UI_HOST` | `127.0.0.1` | Web UI host |
+| `AGENT_UI_PORT` | `7860` | Web UI port |
+| `AGENT_UI_MAX_UPLOAD_BYTES` | `52428800` | Maximum upload size |
+| `AGENT_MAX_LOCAL_FILE_BYTES` | `65536` | Maximum local text read/write size |
+| `LLAMA_CPP_BIN` | auto-detected | Path to `llama-server` |
+| `LLAMA_CPP_MODEL_PATH` | `.runtime/models/qwen2.5-1.5b-instruct-q4_k_m.gguf` | GGUF model path |
+| `LLAMA_CPP_MODEL` | `qwen2.5-1.5b-instruct-q4_k_m` | Model alias |
+| `LLAMA_CPP_BASE_URL` | `http://127.0.0.1:8080/v1` | Local LLM API base URL |
+| `LLAMA_CPP_THREADS` | `4` | llama.cpp CPU thread count |
+| `LLAMA_CPP_CTX_SIZE` | `4096` | llama.cpp context size |
+| `AGENT_OCR_BACKEND` | PC OCR path | OCR backend selector |
+
+## Testing
+
+Run the full test suite:
+
+```powershell
+python -m pytest
 ```
 
-这个脚本会调用 `agent_edge.syss_ocr_once`，输出同样的 `*_ocr_result.json`、Markdown、blocks、content_list_v2。注意：one-shot 脚本不会自动停止 `llama-server`，需要在资源充足或 LLM 已停时使用。
+Run a specific module:
 
-## 重要约束
+```powershell
+python -m pytest tests/test_local_actions.py
+```
 
-- 重型引擎必须串行：`llama-server` 和 OCR 不能同时活跃。
-- 不要在 UI 中并发提交多个重型任务。
-- 大 PDF 不要一次性塞进模型上下文，后续应接入分块摘要/检索。
-- 当前运行必须准备 `llama.cpp` 和 Qwen2.5-1.5B GGUF；没有无模型 mock 模式。
-- `.runtime/` 用于放 llama.cpp 和模型，不进入 git。
-- `OCR_pc/`、`sherpa_asr/` 是外部能力目录，模型和虚拟环境不应进入 git。
+Some OCR, ASR, Typst, or board-side tests require external models, binaries, or hardware/runtime setup.
+
+## Development Notes
+
+- `.runtime/` stores local runtime files, models, and logs and should not be committed.
+- `workspace_files/` stores uploads, OCR outputs, and generated documents. Manage its contents according to your deployment needs.
+- `llama-server`, OCR, and ASR are heavy resources. The project uses `heavy_runtime.py` to coordinate them; avoid running multiple heavy tasks concurrently.
+- The current Web UI does not include a public-facing authentication/authorization system. Do not expose it directly to the public internet.
+- Large files should not be inserted directly into the model context. Prefer OCR, chunked summaries, or context retrieval workflows.
+
+## Additional Documentation
+
+See:
+
+- `docs/agent/AGENT_MVP_GUIDE.md`
+- `docs/agent/系统架构.md`
+- `docs/agent/进程调度.md`
+- `docs/agent/MEETING_MINUTES_TYPST_DEPLOY.md`
+- `docs/human/系统架构.md`
+
+## License
+
+No open-source license is currently declared in this repository. Add an explicit License file before public release or commercial distribution.
